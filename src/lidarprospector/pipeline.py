@@ -158,8 +158,16 @@ def _dedupe_across_scales(mounds: list) -> list:
 
 
 def scan(
-    source, bbox, plan: Plan, cfg: ScanConfig | None = None, log=print, gate: MemoryGate | None = None
+    source,
+    bbox,
+    plan: Plan,
+    cfg: ScanConfig | None = None,
+    log=print,
+    gate: MemoryGate | None = None,
+    on_tile=None,
 ) -> ScanResult:
+    """`on_tile(done, total, mounds, pits)` is called as each tile finishes, so callers can show results
+    while the rest is still streaming in."""
     cfg = cfg or ScanConfig()
     align = max(*cfg.scales, *cfg.mound_scales)
     halo = math.ceil(max(plan.halo, required_halo(cfg.scales, cfg.mound_scales)) / align) * align
@@ -203,6 +211,8 @@ def scan(
                 all_frags[s] += f
             done += 1
             log(f"tile {done}/{len(grid)} {tile.index}: {len(mounds)} mounds, {len(pits)} pits")
+            if on_tile is not None:
+                on_tile(done, len(grid), mounds, pits)
     for s, frags in all_frags.items():
         for line in merge_line_fragments(frags):
             for part in _without_roads(line, s, res, cfg):
