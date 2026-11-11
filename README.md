@@ -45,8 +45,9 @@ uv run python -m lidarprospector.scan --source england --lonlat -1.8262 51.1789 
   reproduces a one-big-tile scan exactly for mounds and lines (tested on synthetic and real terrain).
   Pits match except for rare borderline blobs (1 of 40 on the real tile).
 - **Pipelined.** Downloads run in parallel with compute.
-- **Structure-size control.** `--min-size-m` / `--max-size-m` pick the resolution pyramid levels, so
-  hillforts and cursus (hundreds of metres) are searched on coarser grids.
+- **Structure-size control.** `--min-size-m` / `--max-size-m` pick the pyramid levels for lines, and
+  `--max-mound-m` adds coarser levels for the mound network (de-duplicated across levels), so structures
+  of hundreds of metres are searched on coarser grids.
 - **Accelerator-agnostic filters.** The 13-channel feature stack is separable convolutions in PyTorch:
   0.2 s on Metal versus 7.8 s in SciPy for a 9 MP tile (CPU torch is slower than SciPy, so the CPU
   path stays SciPy).
@@ -93,22 +94,24 @@ differences of a few points are within noise.
 
 ### Other landscapes (zero-shot)
 
-The U-Net was trained on Wessex only and scored on four tiles it never saw: two of North York Moors
-heather moorland and two of the Peak District, 39 single barrows and cairns (cairns count as barrows;
-this changed none of the Wessex labels). Recall at K candidates per 9 km² tile:
+The U-Net was trained on Wessex only and scored on eight tiles it never saw, in three landscapes: North
+York Moors heather moorland (2 tiles), the Peak District (2) and Dartmoor (4). 135 single barrows and cairns
+in total (cairns count as barrows; this changed none of the Wessex labels). Recall at K candidates per
+9 km² tile:
 
 | Method | K=25 | K=50 | K=100 | K=200 |
 |---|---|---|---|---|
-| Hand-tuned relief thresholds | 5% | 5% | 8% | 10% |
-| Pixel gradient boosting | 13% | 15% | 26% | 36% |
-| **U-Net (trained on Wessex only)** | 36% | 38% | 51% | **54%** |
-| U-Net also trained on the other moor / Peak tiles | 36% | 38% | 44% | 46% |
+| Hand-tuned relief thresholds | 3% | 6% | 7% | 10% |
+| Pixel gradient boosting | 12% | 19% | 26% | 32% |
+| **U-Net (trained on Wessex only)** | 34% | 36% | 41% | **45%** |
 | Random | 0% | 1% | 2% | 4% |
 
-The U-Net carries over best, though it drops from 75% in-region to 54%. Adding a few tiles of the new
-landscapes did not help (46% vs 54%, within noise at 39 barrows and one seed). Dartmoor, with 335 labelled
-barrows and cairns, is the obvious next benchmark; the ablation of training length, width and input features
-was stopped after one fold (37, 39, 41 and 39 of 67, inside the run-to-run noise) and is inconclusive.
+By landscape (U-Net, recall at K=25 / 100 / 200): North York Moors 32% / 41% / 45% (22 labels), Peak District
+41% / 65% / 65% (17), Dartmoor 33% / 38% / 42% (96). So the U-Net carries over best of the methods, but
+drops from 75% in-region to about 45% on unseen terrain, and it is a ranking, not a calibrated detector.
+An earlier four-tile run (39 labels) suggested adding a few tiles of the new landscapes does not help; that
+check was not repeated with Dartmoor. The ablation of training length, width and input features was stopped
+after one fold (37, 39, 41 and 39 of 67, inside the run-to-run noise) and is inconclusive.
 
 ### Maya-region demo (qualitative, no scores)
 
@@ -116,7 +119,9 @@ was stopped after one fold (37, 39, 41 and 39 of 67, inside the run-to-run noise
 runs the Wessex-trained pipeline on the Quiriguá UAV lidar (0.25 m, flown to find mounds under canopy). There is
 no site inventory, so nothing here is scored. It produced 36 mounds, 266 pits and 63 lines. The mound
 candidates fall on the textured forest floor, not on the large platforms: the network learned 10-30 m
-barrows at 1 m cells, and Maya platforms are far bigger. The pits mostly look like tree-throws and sinks. The
+barrows at 1 m cells, and Maya platforms are far bigger. Running the network on coarser pyramid levels
+(`--max-mound-m 150`) finds seven mid-size structures at the 2 m level but nothing at 4 m or 8 m, and still
+not the acropolis: the network does not recognise large rectilinear platforms, so that needs training examples. The pits mostly look like tree-throws and sinks. The
 click-to-find viewer also runs on it (`serve --source geotiff:... --bbox ...`).
 
 ### Prompt-by-example search
@@ -189,16 +194,15 @@ Mexico) rather than publishing coordinates.
 - Linear detections still include hedge banks, tracks and valley edges. `--mask-roads` removes the parts
   of lines that run along OpenStreetMap roads (unit-tested with synthetic roads; the live Overpass request
   in this form has not been run).
-- Enclosures, hillforts and field systems are not detected, and the structure-size pyramid applies to
-  the line finder only (the mound network and pit finder work at 1 m).
+- Enclosures, hillforts and field systems are not detected. The pit finder works at 1 m only.
 
 ## Roadmap
 
 - Weights as a release download, so the quick start needs no training step.
 - Ground-return-density map inside `scan`, so the tool knows where canopy hides the ground.
 - More sources (Canada COPC first), verified one at a time.
-- A Dartmoor benchmark (densest open labels), more seeds, and labels for enclosures and linear monuments.
-- Mounds at several scales (pyramid or scale augmentation) so large structures are searched too.
+- More seeds, and labels for enclosures and linear monuments.
+- Training examples of large rectilinear platforms (Maya-style), so the coarse mound levels find them.
 
 ## Development
 
