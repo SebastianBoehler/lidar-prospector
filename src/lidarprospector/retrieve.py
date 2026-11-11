@@ -48,17 +48,26 @@ class Index:
         proto = self.flat[cells].mean(0)
         return self.flat @ (proto / np.linalg.norm(proto))
 
-    def classifier_scores(
-        self, pos: list[int], neg: list[int], rng: np.random.Generator, n_background: int = 800
+    def probe_scores(
+        self,
+        pos_vecs: np.ndarray,
+        neg_vecs: np.ndarray | None,
+        rng: np.random.Generator,
+        n_background: int = 3000,
     ) -> np.ndarray:
-        """Positives vs rejected cells plus random background (structures are rare, so background is
-        almost all negative). Learns a direction in embedding space separating 'like these' from the rest."""
-        bg = rng.integers(0, len(self.flat), n_background)
-        x = (
-            np.concatenate([self.flat[pos], self.flat[neg], self.flat[bg]])
-            if neg
-            else np.concatenate([self.flat[pos], self.flat[bg]])
-        )
-        y = np.r_[np.ones(len(pos)), np.zeros(len(neg) + n_background)]
-        clf = LogisticRegression(C=1.0, class_weight="balanced", max_iter=500).fit(x, y)
+        """Linear probe: positives vs rejected examples plus random background (structures are rare, so
+        random places are almost all negative). Learns the direction in embedding space that separates
+        'like these' from the rest, which beats the mean of the examples because it also learns what to
+        ignore (field boundaries, tracks)."""
+        bg = self.flat[rng.integers(0, len(self.flat), n_background)]
+        neg = bg if neg_vecs is None or len(neg_vecs) == 0 else np.concatenate([neg_vecs, bg])
+        x = np.concatenate([pos_vecs, neg])
+        y = np.r_[np.ones(len(pos_vecs)), np.zeros(len(neg))]
+        clf = LogisticRegression(C=1.0, class_weight="balanced", max_iter=1000).fit(x, y)
         return self.flat @ clf.coef_[0]
+
+    def classifier_scores(
+        self, pos: list[int], neg: list[int], rng: np.random.Generator, n_background: int = 3000
+    ) -> np.ndarray:
+        """probe_scores for examples given as cells of this index."""
+        return self.probe_scores(self.flat[pos], self.flat[neg] if neg else None, rng, n_background)

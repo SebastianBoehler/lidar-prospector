@@ -46,11 +46,7 @@ class Tile:
         idx = self.index
         pos_c = [idx.cell_of(r, c) for r, c in pos]
         neg_c = [idx.cell_of(r, c) for r, c in neg]
-        if neg_c:
-            scores = idx.classifier_scores(pos_c, neg_c, self.rng)
-        else:
-            p = idx.flat[pos_c].mean(0)
-            scores = idx.flat @ (p / np.linalg.norm(p))
+        scores = idx.probe_scores(idx.flat[pos_c], idx.flat[neg_c] if neg_c else None, self.rng)
         hide = set(pos_c + neg_c)
         top = idx.top(scores, k, exclude=hide)
         return [{"row": r, "col": c} for r, c in (idx.pixel_of(t) for t in top)]

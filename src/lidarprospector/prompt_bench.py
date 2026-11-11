@@ -66,9 +66,11 @@ def trial(tile, others, n_ex, source, rng):
 
     scores = idx.flat @ unit(ex_vecs.mean(0))
     evaluate("prototype", scores)
+    evaluate("probe", idx.probe_scores(ex_vecs, None, rng))
     evaluate("random", rng.random(len(idx.flat)))
     if source == "same":
         pos, neg = list(ex_cells), []
+        scores = idx.probe_scores(ex_vecs, None, rng)
         for rnd in (1, 2):
             shown = idx.top(scores, 20, exclude=exclude | set(pos) | set(neg))
             good = [c for c in shown if found([c]) & targets]
