@@ -59,6 +59,7 @@ Every source returns the same object: a metric, north-up elevation grid plus its
 |---|---|---|
 | England, Environment Agency 1 m DTM (WCS) | verified on the benchmark windows; a live multi-tile `scan --source england` has not been run yet | OGL v3 |
 | Any GeoTIFF / COG, local or HTTP, any CRS | verified | windowed reads and on-the-fly reprojection; checked against a remote global 30 m COG and a synthetic lat/lon raster |
+| OpenTopography UAV lidar, Quiriguá Guatemala (`--source preset:quirigua`) | verified: file downloaded (28.6 MB) and scanned | CC BY 4.0, 0.25 m DTM under canopy; terms read from the publisher's page |
 | USGS 3DEP point clouds (EPT, no login) | built from earlier-verified pieces | gridded from classified ground returns; not re-run live after the refactor; needs the survey name (`ept:PROJECT`) |
 | Canada CanElevation (COPC on AWS) | not built | COPC point clouds, Open Government Licence, listed on the AWS registry |
 | Mexico INEGI | not built | free for researchers but non-commercial, ~5 m grids from sparse point clouds: too coarse for small structures |
@@ -89,6 +90,34 @@ beats the other families by a wide margin. Self-supervised pretraining helps the
 slightly but loses at 200 candidates, and the ensemble is worse than the U-Net alone. These runs use one
 seed and 1,500 training steps per model, and three of the five tiles contain 4 or fewer barrows, so
 differences of a few points are within noise.
+
+### Other landscapes (zero-shot)
+
+The U-Net was trained on Wessex only and scored on four tiles it never saw: two of North York Moors
+heather moorland and two of the Peak District, 39 single barrows and cairns (cairns count as barrows;
+this changed none of the Wessex labels). Recall at K candidates per 9 km² tile:
+
+| Method | K=25 | K=50 | K=100 | K=200 |
+|---|---|---|---|---|
+| Hand-tuned relief thresholds | 5% | 5% | 8% | 10% |
+| Pixel gradient boosting | 13% | 15% | 26% | 36% |
+| **U-Net (trained on Wessex only)** | 36% | 38% | 51% | **54%** |
+| U-Net also trained on the other moor / Peak tiles | 36% | 38% | 44% | 46% |
+| Random | 0% | 1% | 2% | 4% |
+
+The U-Net carries over best, though it drops from 75% in-region to 54%. Adding a few tiles of the new
+landscapes did not help (46% vs 54%, within noise at 39 barrows and one seed). Dartmoor, with 335 labelled
+barrows and cairns, is the obvious next benchmark; the ablation of training length, width and input features
+was stopped after one fold (37, 39, 41 and 39 of 67, inside the run-to-run noise) and is inconclusive.
+
+### Maya-region demo (qualitative, no scores)
+
+`python -m lidarprospector.scan --source preset:quirigua --bbox 280558 1688608 281313 1689943 --mounds output/unet.pt`
+runs the Wessex-trained pipeline on the Quiriguá UAV lidar (0.25 m, flown to find mounds under canopy). There is
+no site inventory, so nothing here is scored. It produced 36 mounds, 266 pits and 63 lines. The mound
+candidates fall on the textured forest floor, not on the large platforms: the network learned 10-30 m
+barrows at 1 m cells, and Maya platforms are far bigger. The pits mostly look like tree-throws and sinks. The
+click-to-find viewer also runs on it (`serve --source geotiff:... --bbox ...`).
 
 ### Prompt-by-example search
 
@@ -145,16 +174,17 @@ Mexico) rather than publishing coordinates.
 
 ## Limitations
 
-- Tested only on open English downland: short grass, excellent lidar, well-mapped monuments. Forest,
-  jungle, wetland and non-English terrain are untested, and the U-Net was trained on five tiles of one
-  landscape.
+- Scored only in England: Wessex downland, North York Moors and Peak District (open ground, excellent
+  lidar, well-mapped monuments). Forest, jungle, wetland and non-English terrain have no scored benchmark;
+  the Quiriguá run is a qualitative demo. The U-Net was trained on five tiles of one landscape.
 - Labels are *scheduled* monuments, the known and protected ones, so recall says nothing about finding
   new ones. Unlabelled candidates are not necessarily false, and not necessarily real.
 - Mound output is ranked, not calibrated: the scan keeps the best 22 per km². In the top 25 per tile
   only about 30% of the scheduled barrows are found.
 - Discovery output is not credible yet. Once barrows inside scheduled areas are removed, the top-ranked
   unscheduled places from the embedding search are mostly field boundaries, ditches and lynchets.
-- Models and detectors assume 1 m cells. Coarser sources (such as 5 m or 30 m grids) are resampled and
+- The mound network is tuned to barrow-sized mounds (10-30 m) at 1 m cells; larger Maya-style platforms need
+  a coarser mound level or scale-augmented training. Models and detectors assume 1 m cells. Coarser sources (such as 5 m or 30 m grids) are resampled and
   small structures are lost; the scan warns when the source is coarser than 2 m.
 - Linear detections still include hedge banks, tracks and valley edges. `--mask-roads` removes the parts
   of lines that run along OpenStreetMap roads (unit-tested with synthetic roads; the live Overpass request
@@ -167,7 +197,8 @@ Mexico) rather than publishing coordinates.
 - Weights as a release download, so the quick start needs no training step.
 - Ground-return-density map inside `scan`, so the tool knows where canopy hides the ground.
 - More sources (Canada COPC first), verified one at a time.
-- A broader benchmark outside Wessex, and labels for enclosures and linear monuments.
+- A Dartmoor benchmark (densest open labels), more seeds, and labels for enclosures and linear monuments.
+- Mounds at several scales (pyramid or scale augmentation) so large structures are searched too.
 
 ## Development
 
