@@ -52,6 +52,31 @@ uv run python -m lidarprospector.scan --source england --lonlat -1.8262 51.1789 
   0.2 s on Metal versus 7.8 s in SciPy for a 9 MP tile (CPU torch is slower than SciPy, so the CPU
   path stays SciPy).
 
+## Streaming
+
+Real streaming needs a source that supports HTTP range requests: a cloud-optimised GeoTIFF (COG). For those,
+a scan reads only the blocks each tile touches, shares one dataset handle so overlapping halos are not downloaded
+twice, and shows results as tiles finish. Measured with real range requests against a local server with a shared
+bandwidth cap and latency (`python -m lidarprospector.stream_bench`), on an 18 km² file that is natively 1 m:
+
+| | 20 Mbit/s | 5 Mbit/s |
+|---|---|---|
+| Download everything, then process | first result 42 s, total 42 s | 100 s, 100 s |
+| Stream tiles at 1 m | first result **3.3 s**, total 24 s | **9 s**, 60 s |
+| Coarse look from the overviews (4 m cells) | 0.9 s, 8 s total, 4.2 MB | 1.6 s, 12 s total |
+
+The streamed scan fetches 34.6 MB against a 47.2 MB file (empty blocks are never requested); a coarse look
+costs 4.2 MB, 11x less, and finds structures a few tens of metres or larger. Parallel reads do not speed it up
+(the link is the limit; they only hide latency), and without the shared handle the same scan fetched 107 MB.
+These are a simulated link and one synthetic COG built from two Environment Agency tiles, not a remote server.
+
+Three things this is not. (1) The England (WCS) and USGS sources download whole windows, with no range
+requests; the Dutch WCS can scale on the server, so coarse looks are cheap there too. (2) Pruning: fetching only
+the blocks a coarse pass scores highest costs recall for small objects (half the blocks keeps 73% of the
+barrows with the best scorer, against 49% for random blocks), so it is not the default; the savings are real
+for large structures. (3) GDAL's HTTP driver was fetching a whole directory listing on every open, which the
+GeoTIFF source now disables.
+
 ## Terrain sources
 
 Every source returns the same object: a metric, north-up elevation grid plus its licence and attribution.
