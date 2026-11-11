@@ -30,17 +30,15 @@ class Depression:
     depth_m: float
 
 
-def depressions(dtm, min_depth=0.2, sigmas=(3.0, 5.0, 8.0, 12.0)):
+def depressions(dtm, min_depth=0.2, sigmas=(3.0, 5.0, 8.0, 12.0), threshold=0.12):
+    """Closed pits. `threshold` is the blob response in metres of depression, absolute, so a tile gives the
+    same answer inside a mosaic as on its own."""
     z = fill_nodata(dtm).astype("float64")
     relief = ndimage.gaussian_filter(z, 2.0) - ndimage.gaussian_filter(z, 30.0)
     inv = np.clip(-relief, 0, None)
     out = []
     for r, c, s in blob_log(
-        inv / max(inv.max(), 1e-6),
-        min_sigma=sigmas[0],
-        max_sigma=sigmas[-1],
-        num_sigma=len(sigmas),
-        threshold=0.02,
+        inv, min_sigma=sigmas[0], max_sigma=sigmas[-1], num_sigma=len(sigmas), threshold=threshold
     ):
         depth = float(-relief[int(r), int(c)])
         rad = float(s * 2**0.5)
@@ -52,13 +50,22 @@ def depressions(dtm, min_depth=0.2, sigmas=(3.0, 5.0, 8.0, 12.0)):
 @dataclass
 class Line:
     kind: str  # "bank" | "ditch"
-    length_m: float
+    length_m: float  # bounding-box diagonal, in pixels at 1 m cells
     pixels: np.ndarray  # (n, 2) row, col
 
+    @property
+    def extent(self) -> float:
+        return float(np.hypot(*(self.pixels.max(0) - self.pixels.min(0) + 1)))
 
-def linear_features(dtm, sigma=3.0, min_extent=80, hi=97.0, lo=88.0, straightness=0.5, border=15):
-    """Banks and ditches: ridge/valley response, hysteresis so faint stretches join strong seeds,
-    skeleton, then keep long, straight components (rejects rings, tangles and noise)."""
+
+# banks / ditches: (low, high) hysteresis levels in metres of curvature x sigma^2, the median of the
+# 88th / 97th percentiles over the five benchmark tiles. Absolute, so tiles agree at seams.
+DEFAULT_THRESHOLDS = {"bank": (0.06, 0.13), "ditch": (0.066, 0.14)}
+
+
+def line_fragments(dtm, sigma=3.0, thresholds=None, border=15, min_pixels=5):
+    """Skeletons of ridge (bank) and valley (ditch) responses, unfiltered. `thresholds` maps kind to
+    (low, high); None uses per-tile percentiles (88 / 97), which adapt to the tile but are not tile-safe."""
     z = fill_nodata(dtm).astype("float64")
     H = hessian_matrix(z, sigma=sigma, order="rc", use_gaussian_derivatives=True)
     l1, l2 = hessian_matrix_eigvals(H)
@@ -67,15 +74,29 @@ def linear_features(dtm, sigma=3.0, min_extent=80, hi=97.0, lo=88.0, straightnes
     ditch = np.clip(l1, 0, None) * sigma**2 * (np.abs(l2) < 0.5 * np.abs(l1))
     ok = ~ndimage.binary_dilation(np.isnan(dtm), iterations=border)
     ok[:border], ok[-border:], ok[:, :border], ok[:, -border:] = False, False, False, False
-    lines: list[Line] = []
+    out: list[Line] = []
     for kind, strength in (("bank", bank), ("ditch", ditch)):
         strength = np.where(ok, strength, 0)
-        pos = strength[strength > 0]
-        mask = apply_hysteresis_threshold(strength, np.percentile(pos, lo), np.percentile(pos, hi))
+        if thresholds:
+            lo, hi = thresholds[kind]
+        else:
+            pos = strength[strength > 0]
+            lo, hi = np.percentile(pos, 88), np.percentile(pos, 97)
+        mask = apply_hysteresis_threshold(strength, lo, hi)
         lab = label(skeletonize(mask), connectivity=2)
-        for r in regionprops(lab):
-            h0, w0, h1, w1 = r.bbox
-            extent = float(np.hypot(h1 - h0, w1 - w0))
-            if extent >= min_extent and extent / r.area >= straightness:
-                lines.append(Line(kind, extent, r.coords))
+        out += [Line(kind, 0.0, r.coords) for r in regionprops(lab) if r.area >= min_pixels]
+    return out
+
+
+def keep_line(line: Line, min_extent: float = 80, straightness: float = 0.5) -> bool:
+    """Long and straight: rejects rings, tangles and short noise."""
+    return line.extent >= min_extent and line.extent / len(line.pixels) >= straightness
+
+
+def linear_features(dtm, sigma=3.0, min_extent=80, straightness=0.5, border=15, thresholds=None):
+    lines = [
+        Line(f.kind, f.extent, f.pixels)
+        for f in line_fragments(dtm, sigma, thresholds, border)
+        if keep_line(f, min_extent, straightness)
+    ]
     return sorted(lines, key=lambda l: -l.length_m)
