@@ -51,3 +51,17 @@ def test_feature_stack_shape_names_and_nodata_propagation():
     assert len(names) == len(RELIEF_SIGMAS) + 6 + 3
     assert np.isnan(feats[0, 0]).all()
     assert np.isfinite(feats[60, 60]).all()
+
+
+def test_grid_ground_is_aligned_to_the_bbox_and_north_up():
+    from lidarprospector.terrain import grid_ground
+
+    bbox = (1000.0, 2000.0, 1010.0, 2010.0)
+    xs, ys = np.meshgrid(np.arange(1000.25, 1010, 0.5), np.arange(2000.25, 2010, 0.5))
+    x, y = xs.ravel(), ys.ravel()
+    z = (y - 2000.0) * 10.0  # elevation rises to the north
+    dtm = grid_ground(x, y, z, np.full(x.shape, 2), bbox)
+    assert dtm.shape == (10, 10)
+    assert dtm[0, 0] > dtm[-1, 0]  # row 0 is the northern edge
+    # southernmost cell holds y = 2000.25 and 2000.75, so z = 2.5 and 7.5 -> mean 5.0
+    assert np.isclose(dtm[9, 0], 5.0, atol=0.1)

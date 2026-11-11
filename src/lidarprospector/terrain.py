@@ -28,6 +28,28 @@ def ground_dtm(x, y, z, cls, cell: float = 1.0, max_gap_cells: int = 6):
     return filled[::-1], (x0, y0, cell)  # row 0 = north
 
 
+def grid_ground(x, y, z, cls, bbox, cell: float = 1.0, max_gap_cells: int = 6):
+    """Mean ground elevation per cell on a grid aligned to the bbox (xmin, ymin, xmax, ymax): north-up,
+    row 0 at ymax. Cells without ground returns stay NaN beyond `max_gap_cells` from the nearest one."""
+    xmin, ymin, xmax, ymax = bbox
+    nx, ny = round((xmax - xmin) / cell), round((ymax - ymin) / cell)
+    g = cls == GROUND
+    ix = np.floor((x[g] - xmin) / cell).astype(int)
+    iy = np.floor((ymax - y[g]) / cell).astype(int)
+    keep = (ix >= 0) & (ix < nx) & (iy >= 0) & (iy < ny)
+    flat = iy[keep] * nx + ix[keep]
+    n = np.bincount(flat, minlength=nx * ny)
+    s = np.bincount(flat, weights=z[g][keep], minlength=nx * ny)
+    dtm = np.where(n > 0, s / np.maximum(n, 1), np.nan).reshape(ny, nx)
+    empty = np.isnan(dtm)
+    if not empty.any():
+        return dtm.astype(np.float32)
+    dist, (ri, ci) = ndimage.distance_transform_edt(empty, return_indices=True)
+    filled = dtm[ri, ci]
+    filled[dist > max_gap_cells] = np.nan
+    return filled.astype(np.float32)
+
+
 def local_relief(dtm, sigma_m: float = 15.0, cell: float = 1.0):
     """DTM minus its smoothed trend: mounds positive, ditches negative (metres)."""
     valid = ~np.isnan(dtm)
