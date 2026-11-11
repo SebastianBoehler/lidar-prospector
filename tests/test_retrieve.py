@@ -50,3 +50,23 @@ def test_classifier_scores_rank_planted_structures_first():
     scores = idx.classifier_scores(list(planted[:5]), [], rng)
     ranked = np.argsort(-scores)[:25]
     assert len(set(ranked) & set(planted)) >= 18
+
+
+def test_hillshade_png_is_not_blank_when_terrain_has_nodata():
+    import io
+
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    from lidarprospector.terrain import hillshade
+
+    y, x = np.mgrid[:120, :120].astype(float)
+    dtm = 50 + 5 * np.sin(x / 9) * np.cos(y / 7)
+    dtm[:, 80:] = np.nan  # a survey edge
+    buf = io.BytesIO()
+    plt.imsave(buf, hillshade(dtm), cmap="gray", vmin=0.0, vmax=1.0, format="png")
+    rgba = plt.imread(io.BytesIO(buf.getvalue()))
+    assert (rgba[:, :80, 3] == 1).all()  # terrain is opaque
+    assert (rgba[:, 90:, 3] == 0).all()  # nodata is transparent

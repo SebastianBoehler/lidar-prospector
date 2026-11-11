@@ -1,6 +1,8 @@
 """Local click-to-find viewer: show a terrain tile, click examples, find similar structures.
 
 uv run python -m lidarprospector.serve --bbox 410800 140800 413800 143800
+    uv run python -m lidarprospector.serve --source geotiff:dem.tif --licence "..." --attribution "..." \\
+        --bbox XMIN YMIN XMAX YMAX
 """
 
 import argparse
@@ -28,18 +30,19 @@ STATIC = Path(__file__).parent / "static"
 
 
 class Tile:
-    def __init__(self, bbox, encoder_path, device):
-        dtm, x0, y1 = fetch_dtm(*bbox)
+    """A terrain window as an image plus patch embeddings. `known` are optional (row, col) positions of
+    known structures to overlay; terrain without labels simply has none."""
+
+    def __init__(self, dtm, known, encoder_path, device):
         self.shape = dtm.shape
         buf = io.BytesIO()
-        plt.imsave(buf, hillshade(dtm), cmap="gray", format="png")
+        # fixed 0-1 scale: automatic scaling returns NaN (all-transparent image) when the terrain has nodata
+        plt.imsave(buf, hillshade(dtm), cmap="gray", vmin=0.0, vmax=1.0, format="png")
         self.png = buf.getvalue()
         model = Encoder().to(device)
         model.load_state_dict(torch.load(encoder_path, map_location=device))
         self.index = Index(embed_grid(model, relief_channels(dtm), device=device))
-        tight, ids, *_ = rasters(dtm, x0, y1, monuments(*bbox))
-        n = len(tight)
-        self.known = np.array(ndimage.center_of_mass(ids > 0, ids, range(1, n + 1))).tolist() if n else []
+        self.known = known
         self.rng = np.random.default_rng(0)
 
     def search(self, pos, neg, k):
@@ -87,15 +90,38 @@ def handler(tile: Tile):
     return H
 
 
+def england_tile(bbox, encoder_path, device) -> Tile:
+    dtm, x0, y1 = fetch_dtm(*bbox)
+    tight, ids, *_ = rasters(dtm, x0, y1, monuments(*bbox))
+    n = len(tight)
+    known = np.array(ndimage.center_of_mass(ids > 0, ids, range(1, n + 1))).tolist() if n else []
+    return Tile(dtm, known, encoder_path, device)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--bbox", type=int, nargs=4, required=True)
+    ap.add_argument("--bbox", type=float, nargs=4, required=True)
+    ap.add_argument(
+        "--source", default="england", help="england (with scheduled-monument overlay) or any scan source"
+    )
+    ap.add_argument("--licence")
+    ap.add_argument("--attribution")
+    ap.add_argument("--epsg", type=int)
     ap.add_argument("--encoder", type=Path, default=Path("output/encoder.pt"))
     ap.add_argument("--port", type=int, default=8765)
     a = ap.parse_args()
     device = "mps" if torch.backends.mps.is_available() else "cpu"
     print("loading terrain and embedding the tile ...", flush=True)
-    tile = Tile(tuple(a.bbox), a.encoder, device)
+    if a.source == "england":
+        tile = england_tile(tuple(int(v) for v in a.bbox), a.encoder, device)
+    else:
+        from .scan import build_source
+
+        args = argparse.Namespace(source=a.source, licence=a.licence, attribution=a.attribution, epsg=a.epsg,
+                                  lonlat=None)  # fmt: skip
+        src = build_source(args)
+        print(f"data: {src.name}; {src.licence}; {src.attribution}", flush=True)
+        tile = Tile(src.fetch(tuple(a.bbox), cell=1.0).z, [], a.encoder, device)
     print(f"ready: http://127.0.0.1:{a.port}", flush=True)
     ThreadingHTTPServer(("127.0.0.1", a.port), handler(tile)).serve_forever()
 
