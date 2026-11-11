@@ -32,6 +32,9 @@ class ScanConfig:
     thresholds: dict = field(default_factory=lambda: dict(DEFAULT_THRESHOLDS))
     mound_fn: Callable[[np.ndarray], np.ndarray] | None = None  # dtm tile -> barrow probability map
     min_mound_prob: float = 0.3
+    # Probabilities from a loss that up-weights positives are not calibrated, so rank instead: keep the
+    # best N per km2 over the whole scan (the benchmark's K=200 per 9 km2 is ~22). None keeps all.
+    max_mounds_per_km2: float | None = 22.0
 
 
 @dataclass
@@ -162,5 +165,9 @@ def scan(
         for line in merge_line_fragments(frags):
             if keep_line(line, cfg.min_extent_m / (cfg.cell * s)):
                 res.lines.append((line, s))
+    if cfg.max_mounds_per_km2 is not None:
+        area_km2 = grid.width * grid.height * cfg.cell**2 / 1e6
+        keep = max(1, round(cfg.max_mounds_per_km2 * area_km2))
+        res.mounds = sorted(res.mounds, key=lambda m: -m[2])[:keep]
     res.tiles = len(grid)
     return res
