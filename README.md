@@ -2,103 +2,137 @@
 
 Find earthworks in open airborne lidar. Stream only the window you need, build a bare-earth terrain
 model, and surface candidate mounds, pits and linear banks, with a benchmark that scores the detectors
-against known monuments.
+against known monuments. One command scans an area on whatever hardware you have.
 
 > **Status: early research prototype.** Measured on English chalk downland only. Output is a ranked list
 > of *candidates*, not discoveries. See [Limitations](#limitations).
-
-## What is in here
-
-| Piece | What it does | Module |
-|---|---|---|
-| Point-cloud streaming | Fetch only the octree tiles that intersect a window from USGS 3DEP (EPT on S3, no login) | `ept`, `plan`, `run` |
-| Terrain | Bare-earth grid from classified ground returns, local relief, multi-direction hillshade | `terrain` |
-| English terrain model | 1 m Environment Agency LiDAR composite DTM windows via WCS | `wcs` |
-| Features | 13 multi-scale per-pixel descriptors (band-pass relief, Hessian shape, slope, roughness) | `features` |
-| Barrow / mound detector | Gradient-boosted pixel classifier, tested leave-one-tile-out | `learn`, `crossval` |
-| Hand-tuned baseline | Relief thresholds with erosion suppression | `detect` |
-| Pits and linear earthworks | Closed-depression finder; bank/ditch finder with an OpenStreetMap road mask | `shapes`, `roads` |
-| Labels and benchmark | Historic England scheduled monuments as ground truth | `labels`, `bench` |
-| Terrain encoder (optional `embed` extra) | Self-supervised CNN trained on unlabelled terrain patches, no labels | `embed`, `train_embed` |
-| Prompt-by-example search | Linear probe on embeddings: click a few examples, find similar places; simulated-user benchmark | `retrieve`, `prompt_bench` |
-| Click-to-find viewer | Local web page: click examples, press search, accept or reject results | `serve` |
-| Discovery review | Look-alikes of known barrows outside scheduled areas, as a contact sheet | `discover` |
-| Profiler | Wall-clock and throughput per pipeline stage | `profile_stages` |
-
-## Results
-
-Leave-one-tile-out on five 3 km tiles of Wessex chalk downland around Stonehenge: train on four tiles,
-score on the fifth. 119 held-out single barrows pooled; a hit is a candidate within 10 m of a scheduled
-barrow polygon; K is candidates per 9 km² tile.
-
-| K | Learned | Hand-tuned | Random |
-|---|---|---|---|
-| 25 | 13% | 3% | 1% |
-| 50 | 24% | 7% | 1% |
-| 100 | 35% | 15% | 3% |
-| 200 | 50% | 25% | 6% |
-
-### Prompt-by-example search
-
-A 2.3 MB encoder trained without labels (about 9 minutes on an M4 Max) embeds every 64 m patch. A
-simulated user marks N known barrows as examples and the system ranks the tile; the table is recall of
-the remaining scheduled barrows at K = 200 candidates per tile (3 tiles, 114 barrows, 30 trials).
-
-| Examples given | Search (linear probe) | Random |
-|---|---|---|
-| 1 | 19% | 6% |
-| 3 | 31% | 5% |
-| 5 | 34% | 6% |
-| all ~114 (leave-one-tile-out) | 49% | 6% |
-
-Matching the mean of the examples is clearly worse (25% with 5 examples); the probe also learns what to
-ignore. Two rounds of accept/reject feedback add only 1-2 points on top of the probe. Mining hard
-negatives lifts the all-labels case from 50% to 53%; a gradient-boosted head on the same embeddings is
-not better (47-48%), so the ceiling is the representation and the label count, not the classifier.
-
-### Rule-based detectors
-
-The pit and linear-earthwork detectors are rule-based. The linear detector, after masking mapped roads,
-puts 24% of its line pixels inside scheduled linear-monument zones that cover 8% of the tile (a 3x lift on
-a single tile; the labels are whole protected areas, so this is a weak check). The pit detector has no
-labels to score against yet.
 
 ## Quick start
 
 Requires Python 3.11+ and [uv](https://docs.astral.sh/uv/).
 
 ```bash
-uv sync
-uv run python -m lidarprospector.plan --project LA_NortheastDOTD_2_2017 \
-    --lat 32.637 --lon -91.407 --half-m 500        # dry run: how much data would this fetch?
-uv run python -m lidarprospector.run --project LA_NortheastDOTD_2_2017 \
-    --lat 32.637 --lon -91.407 --half-m 500 --utm-epsg 32615
-uv run python -m lidarprospector.bench --bbox 410800 140800 413800 143800
-uv run python -m lidarprospector.crossval
+uv sync --extra embed                       # PyTorch gives GPU (Metal / CUDA) acceleration
+uv run python -m lidarprospector.runtime    # "doctor": what this machine can do and the plan it makes
+
+# scan 6 km x 6 km around a point (England: ~150 MB download, cached under data/; not yet run live,
+# the GeoTIFF form below is the one exercised end to end)
+uv run python -m lidarprospector.scan --source england --lonlat -1.8262 51.1789 --size-km 6
+
+# any elevation GeoTIFF / cloud-optimised GeoTIFF, local or over HTTP; licence text is required
+uv run python -m lidarprospector.scan --source geotiff:https://example.org/dem.tif \
+    --licence "<publisher's licence>" --attribution "<publisher's credit>" --bbox XMIN YMIN XMAX YMAX
 ```
 
-Prompt-by-example search needs the optional PyTorch extra and trains its own encoder (weights are not
-published yet; `output/` is gitignored):
+The output is GeoJSON (WGS84) with the data licence and attribution embedded. To add mound detection,
+train the U-Net on the benchmark tiles and pass it in:
 
 ```bash
-uv sync --extra embed
-uv run python -m lidarprospector.crossval                 # downloads the five benchmark tiles first
-uv run python -m lidarprospector.train_embed --steps 4000 # ~9 min on Apple Silicon (Metal)
-uv run python -m lidarprospector.prompt_bench             # simulated-user benchmark
-uv run python -m lidarprospector.serve --bbox 410800 140800 413800 143800   # click-to-find viewer
-uv run python -m lidarprospector.discover                 # contact sheets of unscheduled look-alikes
-uv run python -m lidarprospector.profile_stages
+uv run python -m lidarprospector.crossval                         # downloads the five benchmark tiles
+uv run python -m lidarprospector.train_unet --steps 2500          # ~3 min on an M4 Max
+uv run python -m lidarprospector.scan --source england --lonlat -1.8262 51.1789 --size-km 6 \
+    --mounds output/unet.pt
 ```
 
-Commands that fetch data cache it under `data/` (gitignored). Rough sizes: a 1 km² window of dense US
-lidar is about 165 MB; one 3 km English DTM tile is about 38 MB. `plan` reports the size first.
+## How it scales
+
+- **Hardware-adaptive.** `runtime` detects cores, *currently available* RAM and the accelerator, and
+  sizes tiles and workers to fit a memory budget (default: half of free RAM after a 4 GB reserve). Other
+  apps share the machine, so a memory gate re-checks before each tile and waits if RAM was taken meanwhile.
+  Re-run the doctor under load and the plan shrinks accordingly.
+- **Seam-safe tiling.** Each tile is processed with a halo of context and every detection is owned by
+  exactly one tile; line fragments that meet at a seam are joined before length filtering. A tiled scan
+  reproduces a one-big-tile scan exactly for mounds and lines (tested on synthetic and real terrain).
+  Pits match except for rare borderline blobs (1 of 40 on the real tile).
+- **Pipelined.** Downloads run in parallel with compute.
+- **Structure-size control.** `--min-size-m` / `--max-size-m` pick the resolution pyramid levels, so
+  hillforts and cursus (hundreds of metres) are searched on coarser grids.
+- **Accelerator-agnostic filters.** The 13-channel feature stack is separable convolutions in PyTorch:
+  0.2 s on Metal versus 7.8 s in SciPy for a 9 MP tile (CPU torch is slower than SciPy, so the CPU
+  path stays SciPy).
+
+## Terrain sources
+
+Every source returns the same object: a metric, north-up elevation grid plus its licence and attribution.
+
+| Source | Status | Notes |
+|---|---|---|
+| England, Environment Agency 1 m DTM (WCS) | verified on the benchmark windows; a live multi-tile `scan --source england` has not been run yet | OGL v3 |
+| Any GeoTIFF / COG, local or HTTP, any CRS | verified | windowed reads and on-the-fly reprojection; checked against a remote global 30 m COG and a synthetic lat/lon raster |
+| USGS 3DEP point clouds (EPT, no login) | built from earlier-verified pieces | gridded from classified ground returns; not re-run live after the refactor; needs the survey name (`ept:PROJECT`) |
+| Canada CanElevation (COPC on AWS) | not built | COPC point clouds, Open Government Licence, listed on the AWS registry |
+| Mexico INEGI | not built | free for researchers but non-commercial, ~5 m grids from sparse point clouds: too coarse for small structures |
+| France, Netherlands, New Zealand, Norway, others | not checked | endpoints and licences unverified |
+
+Add a country by implementing `fetch(bbox)` and `covers(lon, lat)`, or point the GeoTIFF source at its DEM.
+
+## Results
+
+Leave-one-tile-out on five 3 km tiles of Wessex chalk downland around Stonehenge: train on four tiles,
+score on the fifth. 119 held-out single barrows pooled; a hit is a candidate within 10 m of a scheduled
+barrow polygon; K is the number of top-ranked candidates per 9 km² tile.
+
+### Model families compared
+
+| Method | K=25 | K=50 | K=100 | K=200 |
+|---|---|---|---|---|
+| Hand-tuned relief thresholds | 3% | 7% | 15% | 25% |
+| Pixel gradient boosting on 13 terrain features | 13% | 21% | 35% | 51% |
+| Linear probe on self-supervised embeddings | 17% | 27% | 37% | 48% |
+| U-Net from SSL-pretrained encoder | 34% | 49% | 61% | 67% |
+| **U-Net from scratch (shipped)** | 29% | 50% | 67% | **75%** |
+| Ensemble: GBM + U-Net(SSL) | 18% | 32% | 50% | 63% |
+| Random | 1% | 1% | 3% | 6% |
+
+A small supervised U-Net (1.0 M parameters, 2 relief channels, dihedral and amplitude augmentation)
+beats the other families by a wide margin. Self-supervised pretraining helps the top of the ranking
+slightly but loses at 200 candidates, and the ensemble is worse than the U-Net alone. These runs use one
+seed and 1,500 training steps per model, and three of the five tiles contain 4 or fewer barrows, so
+differences of a few points are within noise.
+
+### Prompt-by-example search
+
+A 2.3 MB encoder trained without labels embeds every 64 m patch; a linear probe on the embeddings turns
+a few clicked examples into a search. Recall at K = 200 (3 tiles, 114 barrows, simulated user, 30 trials):
+
+| Examples given | Search | Random |
+|---|---|---|
+| 1 | 19% | 6% |
+| 3 | 31% | 5% |
+| 5 | 34% | 6% |
+| all ~114 | 49% | 6% |
+
+Matching the mean of the examples is worse (25% with 5), and accept/reject feedback adds only 1-2 points.
+The click-to-find viewer is `python -m lidarprospector.serve --bbox ...`.
+
+### Rule-based detectors
+
+Pits and linear earthworks are rule-based and unscored except for one check: after masking mapped roads
+the linear detector puts 24% of its line pixels inside scheduled linear-monument zones that cover 8% of the
+tile (3x lift; the labels are whole protected areas, so this is weak). Its thresholds are absolute
+(so tiles agree at seams) and were set from the median of five tiles whose own percentile thresholds
+differed up to 3x, so rough terrain yields more line detections than a per-tile rule would.
+
+## Performance (one 9 km² tile, Apple M4 Max)
+
+| Stage | Seconds |
+|---|---|
+| Download 1 m terrain tile (network) | 44-53 |
+| 13-channel feature stack, SciPy | 7.8 |
+| 13-channel feature stack, PyTorch on Metal | 0.2 |
+| Encoder over the tile (Metal, stride 8) | 6.3 |
+| Mound + pit + linear detectors, CPU | 5.1 |
+| Nine-tile real-terrain scan, tiled | 13 |
+
+Network transfer dominates; the pipeline overlaps it with compute. Memory per 9 MP tile: 370 B/px for
+SciPy, about 300 B/px (host plus Metal) for the PyTorch path.
 
 ## Data sources and licences
 
 | Data | Source | Licence |
 |---|---|---|
-| Airborne lidar point clouds (US) | [USGS 3DEP on AWS](https://registry.opendata.aws/usgs-lidar/) | US Government public data |
 | 1 m terrain model (England) | Environment Agency LIDAR Composite DTM | Open Government Licence v3.0, (c) Environment Agency copyright and/or database right |
+| Airborne lidar point clouds (US) | [USGS 3DEP on AWS](https://registry.opendata.aws/usgs-lidar/) | US Government public data |
 | Scheduled monuments (labels) | Historic England | Open Government Licence v3.0, (c) Crown Copyright and database right; contains Ordnance Survey data |
 | Roads and railways (mask) | OpenStreetMap via Overpass | ODbL, (c) OpenStreetMap contributors |
 
@@ -112,40 +146,27 @@ Mexico) rather than publishing coordinates.
 ## Limitations
 
 - Tested only on open English downland: short grass, excellent lidar, well-mapped monuments. Forest,
-  jungle, wetland and non-English terrain are untested.
+  jungle, wetland and non-English terrain are untested, and the U-Net was trained on five tiles of one
+  landscape.
 - Labels are *scheduled* monuments, the known and protected ones, so recall says nothing about finding
   new ones. Unlabelled candidates are not necessarily false, and not necessarily real.
-- Ranking at the top of the list is weak (13-18% recall in the top 25 per tile).
+- Mound output is ranked, not calibrated: the scan keeps the best 22 per km². In the top 25 per tile
+  only about 30% of the scheduled barrows are found.
 - Discovery output is not credible yet. Once barrows inside scheduled areas are removed, the top-ranked
-  unscheduled places are mostly field boundaries, ditches and lynchets, so treat the contact sheets as a
-  review aid, not a list of finds.
-- The encoder is trained at 1 m resolution only, on five tiles of one landscape; other resolutions and
-  structure sizes need retraining with scale augmentation.
-- Tiles are fixed 3 km boxes with edge masking, so a structure across a tile seam can be cut or counted
-  twice; a halo-and-merge tiling engine is planned.
-- Linear detections still include hedge banks, tracks and valley edges.
-- Enclosures, hillforts and field systems are not detected.
-
-## Performance (one 9 km² tile, Apple M4 Max)
-
-| Stage | Seconds |
-|---|---|
-| Download 1 m terrain tile (network) | 44-53 |
-| 13-channel feature stack (NumPy/SciPy, CPU) | 7.6 |
-| Encoder over the tile (Metal, stride 8) | 6.3 |
-| Mound + pit + linear detectors | 5.1 |
-
-The pipeline is network-bound today, so the first optimisation is overlapped, parallel downloading;
-after that the feature stack and the encoder (which recomputes heavily overlapping windows) are the
-compute hotspots.
+  unscheduled places from the embedding search are mostly field boundaries, ditches and lynchets.
+- Models and detectors assume 1 m cells. Coarser sources (such as 5 m or 30 m grids) are resampled and
+  small structures are lost; the scan warns when the source is coarser than 2 m.
+- Linear detections still include hedge banks, tracks and valley edges; the OpenStreetMap road mask is
+  not yet part of `scan`.
+- Enclosures, hillforts and field systems are not detected, and the structure-size pyramid applies to
+  the line finder only (the mound network and pit finder work at 1 m).
 
 ## Roadmap
 
-- Tiling engine: halo and seam merging so structures across tile edges are not lost, plus a resolution
-  pyramid for large structures (hillforts, cursus), with user control over structure size.
-- Source adapters for other countries' open lidar (US, England done; Canada's COPC on AWS is next).
-- Hardware-adaptive runtime: pipelined I/O, accelerator-agnostic filters, memory budget from available RAM.
-- Published pretrained encoder weights.
+- Weights as a release download, so the quick start needs no training step.
+- Road mask and ground-return-density map inside `scan`.
+- More sources (Canada COPC first), verified one at a time.
+- A broader benchmark outside Wessex, and labels for enclosures and linear monuments.
 
 ## Development
 
@@ -156,7 +177,8 @@ uv run pytest
 uv run pre-commit install   # optional
 ```
 
-CI runs the same checks on Python 3.11 and 3.13. See [CONTRIBUTING.md](CONTRIBUTING.md).
+CI runs the same checks on Python 3.11 and 3.13 without PyTorch; torch-only tests skip there. See
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
