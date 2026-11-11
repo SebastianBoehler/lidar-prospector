@@ -19,6 +19,11 @@ against known monuments.
 | Hand-tuned baseline | Relief thresholds with erosion suppression | `detect` |
 | Pits and linear earthworks | Closed-depression finder; bank/ditch finder with an OpenStreetMap road mask | `shapes`, `roads` |
 | Labels and benchmark | Historic England scheduled monuments as ground truth | `labels`, `bench` |
+| Terrain encoder (optional `embed` extra) | Self-supervised CNN trained on unlabelled terrain patches, no labels | `embed`, `train_embed` |
+| Prompt-by-example search | Linear probe on embeddings: click a few examples, find similar places; simulated-user benchmark | `retrieve`, `prompt_bench` |
+| Click-to-find viewer | Local web page: click examples, press search, accept or reject results | `serve` |
+| Discovery review | Look-alikes of known barrows outside scheduled areas, as a contact sheet | `discover` |
+| Profiler | Wall-clock and throughput per pipeline stage | `profile_stages` |
 
 ## Results
 
@@ -32,6 +37,26 @@ barrow polygon; K is candidates per 9 km² tile.
 | 50 | 24% | 7% | 1% |
 | 100 | 35% | 15% | 3% |
 | 200 | 50% | 25% | 6% |
+
+### Prompt-by-example search
+
+A 2.3 MB encoder trained without labels (about 9 minutes on an M4 Max) embeds every 64 m patch. A
+simulated user marks N known barrows as examples and the system ranks the tile; the table is recall of
+the remaining scheduled barrows at K = 200 candidates per tile (3 tiles, 114 barrows, 30 trials).
+
+| Examples given | Search (linear probe) | Random |
+|---|---|---|
+| 1 | 19% | 6% |
+| 3 | 31% | 5% |
+| 5 | 34% | 6% |
+| all ~114 (leave-one-tile-out) | 49% | 6% |
+
+Matching the mean of the examples is clearly worse (25% with 5 examples); the probe also learns what to
+ignore. Two rounds of accept/reject feedback add only 1-2 points on top of the probe. Mining hard
+negatives lifts the all-labels case from 50% to 53%; a gradient-boosted head on the same embeddings is
+not better (47-48%), so the ceiling is the representation and the label count, not the classifier.
+
+### Rule-based detectors
 
 The pit and linear-earthwork detectors are rule-based. The linear detector, after masking mapped roads,
 puts 24% of its line pixels inside scheduled linear-monument zones that cover 8% of the tile (a 3x lift on
@@ -50,6 +75,19 @@ uv run python -m lidarprospector.run --project LA_NortheastDOTD_2_2017 \
     --lat 32.637 --lon -91.407 --half-m 500 --utm-epsg 32615
 uv run python -m lidarprospector.bench --bbox 410800 140800 413800 143800
 uv run python -m lidarprospector.crossval
+```
+
+Prompt-by-example search needs the optional PyTorch extra and trains its own encoder (weights are not
+published yet; `output/` is gitignored):
+
+```bash
+uv sync --extra embed
+uv run python -m lidarprospector.crossval                 # downloads the five benchmark tiles first
+uv run python -m lidarprospector.train_embed --steps 4000 # ~9 min on Apple Silicon (Metal)
+uv run python -m lidarprospector.prompt_bench             # simulated-user benchmark
+uv run python -m lidarprospector.serve --bbox 410800 140800 413800 143800   # click-to-find viewer
+uv run python -m lidarprospector.discover                 # contact sheets of unscheduled look-alikes
+uv run python -m lidarprospector.profile_stages
 ```
 
 Commands that fetch data cache it under `data/` (gitignored). Rough sizes: a 1 km² window of dense US
@@ -77,16 +115,37 @@ Mexico) rather than publishing coordinates.
   jungle, wetland and non-English terrain are untested.
 - Labels are *scheduled* monuments, the known and protected ones, so recall says nothing about finding
   new ones. Unlabelled candidates are not necessarily false, and not necessarily real.
-- Ranking at the top of the list is weak (13% recall in the top 25 per tile).
+- Ranking at the top of the list is weak (13-18% recall in the top 25 per tile).
+- Discovery output is not credible yet. Once barrows inside scheduled areas are removed, the top-ranked
+  unscheduled places are mostly field boundaries, ditches and lynchets, so treat the contact sheets as a
+  review aid, not a list of finds.
+- The encoder is trained at 1 m resolution only, on five tiles of one landscape; other resolutions and
+  structure sizes need retraining with scale augmentation.
+- Tiles are fixed 3 km boxes with edge masking, so a structure across a tile seam can be cut or counted
+  twice; a halo-and-merge tiling engine is planned.
 - Linear detections still include hedge banks, tracks and valley edges.
 - Enclosures, hillforts and field systems are not detected.
 
+## Performance (one 9 km² tile, Apple M4 Max)
+
+| Stage | Seconds |
+|---|---|
+| Download 1 m terrain tile (network) | 44-53 |
+| 13-channel feature stack (NumPy/SciPy, CPU) | 7.6 |
+| Encoder over the tile (Metal, stride 8) | 6.3 |
+| Mound + pit + linear detectors | 5.1 |
+
+The pipeline is network-bound today, so the first optimisation is overlapped, parallel downloading;
+after that the feature stack and the encoder (which recomputes heavily overlapping windows) are the
+compute hotspots.
+
 ## Roadmap
 
-- Prompt-by-example search: a self-supervised terrain encoder (optional `embed` extra, uses PyTorch) so a
-  few clicked examples find similar structures without labels.
-- A local click-to-find viewer.
-- Profiling and low-level optimisation of the ingest and feature stages.
+- Tiling engine: halo and seam merging so structures across tile edges are not lost, plus a resolution
+  pyramid for large structures (hillforts, cursus), with user control over structure size.
+- Source adapters for other countries' open lidar (US, England done; Canada's COPC on AWS is next).
+- Hardware-adaptive runtime: pipelined I/O, accelerator-agnostic filters, memory budget from available RAM.
+- Published pretrained encoder weights.
 
 ## Development
 
