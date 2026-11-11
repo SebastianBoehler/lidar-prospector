@@ -124,6 +124,23 @@ barrows at 1 m cells, and Maya platforms are far bigger. Running the network on 
 not the acropolis: the network does not recognise large rectilinear platforms, so that needs training examples. The pits mostly look like tree-throws and sinks. The
 click-to-find viewer also runs on it (`serve --source geotiff:... --bbox ...`).
 
+### Linear monuments, enclosures and field systems (coverage check)
+
+The line finder was never scored on these. Pooled over all 13 English tiles (zones of about 1 km² per
+class; labels are whole protected areas, so this is coverage, not precise recall), the share of a zone
+within 10 m of a detected line, against the same share over the whole tile:
+
+| Class | Pyramid level | Zone covered by a line | Tile-wide base rate | Lift in line length |
+|---|---|---|---|---|
+| Linear monuments (dykes, cursus) | 1 m | 24% | 13% | **2.0x** |
+| | 2 m / 4 m / 8 m | 16% / 7% / 2% | 13% / 7% / 3% | 1.3x / 0.9x / 0.8x |
+| Enclosures (hillforts, henges) | 1 m | 11% | 11% | 0.9x |
+| Field systems | 1 m | 9% | 14% | 0.6x |
+
+Only linear monuments at the finest level stand out. The detector does not find enclosures, and it
+finds field systems less often than chance (they are low-relief), so it should not be read as a detector for
+either. Roads are not masked in this check.
+
 ### Prompt-by-example search
 
 A 2.3 MB encoder trained without labels embeds every 64 m patch; a linear probe on the embeddings turns
@@ -194,7 +211,8 @@ Mexico) rather than publishing coordinates.
 - Linear detections still include hedge banks, tracks and valley edges. `--mask-roads` removes the parts
   of lines that run along OpenStreetMap roads (unit-tested with synthetic roads; the live Overpass request
   in this form has not been run).
-- Enclosures, hillforts and field systems are not detected. The pit finder works at 1 m only.
+- Enclosures, hillforts and field systems are not detected (measured: at chance or below, see above). The pit
+  finder works at 1 m only.
 
 ## Roadmap
 
