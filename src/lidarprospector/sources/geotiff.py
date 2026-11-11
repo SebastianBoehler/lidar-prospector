@@ -35,13 +35,24 @@ class GeoTiffSource:
 
     def fetch(self, bbox, cell: float | None = None) -> Dem:
         cell = cell or self.native_cell
+        # reducing resolution must average the source cells; bilinear would alias fine detail
         xmin, ymin, xmax, ymax = bbox
         w, h = round((xmax - xmin) / cell), round((ymax - ymin) / cell)
         dst = from_origin(xmin, ymax, cell, cell)
-        with rasterio.open(self.path) as ds, WarpedVRT(
-            ds, crs=f"EPSG:{self.epsg}", transform=dst, width=w, height=h,
-            resampling=Resampling.bilinear, nodata=np.nan, dtype="float32",
-        ) as vrt:  # fmt: skip
+        resampling = Resampling.average if cell >= 1.5 * self.native_cell else Resampling.bilinear
+        with (
+            rasterio.open(self.path) as ds,
+            WarpedVRT(
+                ds,
+                crs=f"EPSG:{self.epsg}",
+                transform=dst,
+                width=w,
+                height=h,
+                resampling=resampling,
+                nodata=np.nan,
+                dtype="float32",
+            ) as vrt,
+        ):
             z = vrt.read(1)
         if self._nodata is not None:
             z[z == self._nodata] = np.nan

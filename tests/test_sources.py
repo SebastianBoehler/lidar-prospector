@@ -60,3 +60,21 @@ def test_registry_reports_what_is_registered_when_nothing_covers_a_place():
     assert source_for(-1.83, 51.18).name.startswith("England")
     with pytest.raises(LookupError, match="no registered terrain source"):
         source_for(-91.4, 32.6)
+
+
+def test_reducing_resolution_averages_instead_of_aliasing(tmp_path):
+    """A 0.25 m raster read at 1 m must give the mean of each 4x4 block, not a sampled value."""
+    rng = np.random.default_rng(0)
+    z = rng.standard_normal((400, 400)).astype("float32")  # white noise: aliasing would show immediately
+    write_tif(tmp_path / "fine.tif", z, from_origin(1000, 5100, 0.25, 0.25), "EPSG:27700")
+    src = GeoTiffSource(str(tmp_path / "fine.tif"), "l", "a")
+    dem = src.fetch((1000, 5000, 1100, 5100), cell=1.0)
+    expect = z.reshape(100, 4, 100, 4).mean(axis=(1, 3))
+    assert np.abs(dem.z - expect).max() < 1e-4
+
+
+def test_presets_carry_licence_and_citation():
+    from lidarprospector.sources.presets import PRESETS
+
+    for key, p in PRESETS.items():
+        assert p["licence"] and p["attribution"] and p["url"].startswith("https://"), key

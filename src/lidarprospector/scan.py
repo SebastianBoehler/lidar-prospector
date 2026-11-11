@@ -13,6 +13,7 @@ from pyproj import Transformer
 from .pipeline import ScanConfig, scan
 from .runtime import make_plan
 from .sources import EnglandEA, GeoTiffSource, UsgsEpt, source_for
+from .sources.presets import preset_source
 from .tiling import required_halo, scales_for
 
 
@@ -28,6 +29,8 @@ def build_source(args):
                 "--licence and --attribution are required for a GeoTIFF source: use the publisher's terms"
             )
         return GeoTiffSource(spec[8:], args.licence, args.attribution, epsg=args.epsg)
+    if spec.startswith("preset:"):
+        return preset_source(spec[7:])
     if spec == "auto":
         if not args.lonlat:
             raise SystemExit("--source auto needs --lonlat")
@@ -47,7 +50,9 @@ def build_bbox(args, source):
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--source", default="auto", help="england | ept:PROJECT | geotiff:PATH_OR_URL | auto")
+    ap.add_argument(
+        "--source", default="auto", help="england | ept:PROJECT | geotiff:PATH | preset:NAME | auto"
+    )
     ap.add_argument("--bbox", type=float, nargs=4, metavar=("XMIN", "YMIN", "XMAX", "YMAX"))
     ap.add_argument("--lonlat", type=float, nargs=2, metavar=("LON", "LAT"))
     ap.add_argument("--size-km", type=float, default=3.0)
