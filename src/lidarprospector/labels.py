@@ -9,7 +9,7 @@ URL = (
     "https://services-eu1.arcgis.com/ZOdPfBS3aqqDYPUQ/arcgis/rest/services/"
     "National_Heritage_List_for_England_NHLE_v02_VIEW/FeatureServer/6/query"
 )
-BARROW = re.compile(r"barrow|tumul", re.I)
+BARROW = re.compile(r"barrow|tumul|cairn", re.I)  # cairns are the upland equivalent of barrows
 LINEAR = re.compile(
     r"cursus|avenue|dyke|linear boundar|boundary (bank|ditch)|trackway|ridgeway|lynchet", re.I
 )

@@ -15,6 +15,7 @@ from lidarprospector.labels import classify
         # "linear round barrow cemetery" describes barrows, not a linear earthwork
         ("Bowl barrow forming part of a linear round barrow cemetery", 0.11, "barrow"),
         ("Long barrow and 18 round barrows forming Normanton Down round barrow cemetery", 4.7, "barrow"),
+        ("Round cairn on Danby Rigg", 0.05, "barrow"),
         ("Medieval fishpond", 1.0, "other"),
         (None, 1.0, "other"),
         # some records have no recorded area: never a tight single barrow, but not a crash
