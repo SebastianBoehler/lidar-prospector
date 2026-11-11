@@ -47,6 +47,7 @@ def add(rows, name, hits):
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--steps", type=int, default=1500)
+    ap.add_argument("--skip-mixed", action="store_true", help="only the zero-shot stage")
     a = ap.parse_args()
     device = pick_device()
     rng = np.random.default_rng(0)
@@ -58,6 +59,7 @@ def main() -> None:
     targets = sum(t["n"] for t in new)
 
     zero: dict = {}
+    by_land: dict = {}
     model = train_unet(wessex, None, a.steps, device, seed=0)
     clf = fit_gbm(wessex, rng)
     for t in new:
@@ -65,7 +67,21 @@ def main() -> None:
         add(zero, "pixel GBM", hits_at(peaks_from_prob(gbm_predict(clf, t)), t))
         add(zero, "U-Net (Wessex only)", hits_at(peaks_from_prob(predict_dense(model, t["chan"], device)), t))
         add(zero, "random", random_hits(t, rng))
+        add(
+            by_land.setdefault(names[new.index(t)], {}),
+            "U-Net (Wessex only)",
+            hits_at(peaks_from_prob(predict_dense(model, t["chan"], device)), t),
+        )
+        by_land[names[new.index(t)]]["_n"] = by_land[names[new.index(t)]].get("_n", 0) + t["n"]
     report("ZERO-SHOT: trained on Wessex only", zero, targets)
+    print("\nU-Net (Wessex only) by landscape, recall at K=25 / 100 / 200:")
+    for land, d in by_land.items():
+        n = d["_n"]
+        row = d["U-Net (Wessex only)"]
+        k25, k100, k200 = (f"{row[k] / n:.0%}" for k in (25, 100, 200))
+        print(f"  {land:<18} {n:>3} barrows/cairns:  {k25} / {k100} / {k200}")
+    if a.skip_mixed:
+        return
 
     mixed: dict = {}
     for i, t in enumerate(new):
