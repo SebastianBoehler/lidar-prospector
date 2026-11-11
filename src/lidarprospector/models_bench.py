@@ -26,9 +26,9 @@ from .wcs import fetch_dtm
 BUDGETS = (25, 50, 100, 200)
 
 
-def load_all():
+def load_all(bboxes=None):
     data = []
-    for bbox in tiles():
+    for bbox in bboxes or tiles():
         dtm, x0, y1 = fetch_dtm(*bbox)
         tight, ids, pos, ignore, near = rasters(dtm, x0, y1, monuments(*bbox))
         data.append({"bbox": bbox, "dtm": dtm, "chan": relief_channels(dtm), "pos": pos, "ignore": ignore,
@@ -44,7 +44,7 @@ def hits_at(peaks, tile):
     return out
 
 
-def gbm_prob(train, test, rng):
+def fit_gbm(train, rng):
     xs, ys = [], []
     for t in train:
         feats, _ = feature_stack_torch(t["dtm"])
@@ -55,9 +55,16 @@ def gbm_prob(train, test, rng):
         xs += [flat[p], flat[n]]
         ys += [np.ones(len(p)), np.zeros(len(n))]
     clf = HistGradientBoostingClassifier(max_iter=250, learning_rate=0.08, max_leaf_nodes=31, random_state=0)
-    clf.fit(np.concatenate(xs), np.concatenate(ys))
+    return clf.fit(np.concatenate(xs), np.concatenate(ys))
+
+
+def gbm_predict(clf, test):
     feats, _ = feature_stack_torch(test["dtm"])
     return clf.predict_proba(feats.reshape(-1, feats.shape[-1]))[:, 1].reshape(test["dtm"].shape)
+
+
+def gbm_prob(train, test, rng):
+    return gbm_predict(fit_gbm(train, rng), test)
 
 
 def probe_peaks(train, test, enc, device, rng):

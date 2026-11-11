@@ -19,6 +19,17 @@ STONEHENGE = (410800, 140800, 413800, 143800)
 EXTRA_TILES = ((420000, 144000), (417000, 144000), (387000, 117000), (414000, 153000))
 
 
+# Other English landscapes, 3 km cells chosen by single-barrow/cairn count (SW corners, EPSG:27700).
+OTHER_LANDSCAPES = {
+    "North York Moors": ((450000, 501000), (456000, 480000)),
+    "Peak District": ((420000, 384000), (417000, 372000)),
+}
+
+
+def landscape_tiles():
+    return [(name, (x, y, x + 3000, y + 3000)) for name, cells in OTHER_LANDSCAPES.items() for x, y in cells]
+
+
 def tiles():
     return [STONEHENGE] + [(x, y, x + 3000, y + 3000) for x, y in EXTRA_TILES]
 
