@@ -19,12 +19,12 @@ ENCLOSURE = re.compile(
 )
 
 
-def classify(name: str, area_ha: float) -> str:
+def classify(name: str | None, area_ha: float | None) -> str:
     """Coarse class from the monument name. Names often list several things ("The Cursus, two round
     barrows ..."), so a large protected area is classed by its structural keywords before 'barrow';
     a small one is a barrow if the name says so."""
     n = name or ""
-    if area_ha <= 0.5 and BARROW.search(n):
+    if area_ha is not None and area_ha <= 0.5 and BARROW.search(n):
         return "barrow"
     for label, rx in (("linear", LINEAR), ("fields", FIELDS), ("enclosure", ENCLOSURE), ("barrow", BARROW)):
         if rx.search(n):
@@ -67,9 +67,11 @@ def monuments(xmin, ymin, xmax, ymax):
     ]
 
 
+def is_tight_barrow(m: dict, max_area_ha: float = 0.5) -> bool:
+    """A single-barrow polygon: small protected area, so the polygon is the mound and not a whole
+    cemetery or enclosure. Records without a recorded area are never tight."""
+    return m["cls"] == "barrow" and m["area_ha"] is not None and m["area_ha"] <= max_area_ha
+
+
 def barrows(xmin, ymin, xmax, ymax, max_area_ha: float = 0.5):
-    """Single-monument barrow polygons: small protected area, so the polygon is the mound and
-    not a whole cemetery or enclosure."""
-    return [
-        m for m in monuments(xmin, ymin, xmax, ymax) if m["cls"] == "barrow" and m["area_ha"] <= max_area_ha
-    ]
+    return [m for m in monuments(xmin, ymin, xmax, ymax) if is_tight_barrow(m, max_area_ha)]

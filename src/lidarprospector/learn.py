@@ -12,7 +12,7 @@ from sklearn.ensemble import HistGradientBoostingClassifier
 
 from .detect import detect
 from .features import feature_stack
-from .labels import monuments
+from .labels import is_tight_barrow, monuments
 from .wcs import fetch_dtm
 
 BUDGETS = (25, 50, 100, 200)
@@ -20,7 +20,7 @@ BUDGETS = (25, 50, 100, 200)
 
 def rasters(dtm, x0, y1, mons, tol_m=10):
     tf = from_origin(x0, y1, 1, 1)
-    tight = [m for m in mons if m["cls"] == "barrow" and m["area_ha"] <= 0.5]
+    tight = [m for m in mons if is_tight_barrow(m)]
     other = [m for m in mons if m not in tight]
     shape = dtm.shape
 

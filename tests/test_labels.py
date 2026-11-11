@@ -17,7 +17,18 @@ from lidarprospector.labels import classify
         ("Long barrow and 18 round barrows forming Normanton Down round barrow cemetery", 4.7, "barrow"),
         ("Medieval fishpond", 1.0, "other"),
         (None, 1.0, "other"),
+        # some records have no recorded area: never a tight single barrow, but not a crash
+        ("Bowl barrow on the moor", None, "barrow"),
     ],
 )
 def test_classify(name, area_ha, expected):
     assert classify(name, area_ha) == expected
+
+
+def test_tight_barrow_helper_handles_missing_areas():
+    from lidarprospector.labels import is_tight_barrow
+
+    assert is_tight_barrow({"cls": "barrow", "area_ha": 0.1})
+    assert not is_tight_barrow({"cls": "barrow", "area_ha": 3.0})
+    assert not is_tight_barrow({"cls": "barrow", "area_ha": None})
+    assert not is_tight_barrow({"cls": "linear", "area_ha": 0.1})
