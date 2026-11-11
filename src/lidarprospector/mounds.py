@@ -19,8 +19,12 @@ def predict_dense(model, chan: np.ndarray, device: str, block: int = 1024, pad: 
     each block is predicted with `pad` pixels of context that are then discarded."""
     model.eval()
     _, h, w = chan.shape
+    if min(h, w) <= pad:
+        raise ValueError(f"image {h}x{w} is not larger than the {pad} px context")
     ph, pw = (-h) % block, (-w) % block
-    x = F.pad(torch.from_numpy(chan)[None], (pad, pad + pw, pad, pad + ph), mode="reflect").to(device)
+    x = torch.from_numpy(chan)[None]
+    x = F.pad(x, (pad, pad, pad, pad), mode="reflect")  # context at the real edges
+    x = F.pad(x, (0, pw, 0, ph), mode="replicate").to(device)  # fill the last block (may exceed the image)
     out = torch.zeros(h + ph, w + pw)
     for r in range(0, h + ph, block):
         for c in range(0, w + pw, block):

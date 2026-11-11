@@ -91,11 +91,21 @@ def scales_for(
     return tuple(out) or (1,)
 
 
-def required_halo(scales: tuple[int, ...]) -> int:
+def mound_scales_for(max_size_m: float, cell: float = 1.0, base_px: float = 10.0) -> tuple[int, ...]:
+    """Pyramid factors for the mound network, which finds structures from ~base_px pixels across: at
+    factor s it covers ~base_px*s*cell metres, so larger structures come from coarser levels."""
+    out, s = [], 1
+    while s == 1 or base_px * s * cell <= max_size_m:
+        out.append(s)
+        s *= 2
+    return tuple(out)
+
+
+def required_halo(scales: tuple[int, ...], mound_scales: tuple[int, ...] = (1,)) -> int:
     """Context (base pixels) a tile needs so its core is exact. At pyramid factor s the line finder
     reaches ~12 s px (Hessian) plus its 15 s px edge mask; the pit finder reaches 120 px (30 px Gaussian
-    x 4) and the mound network ~100 px at the base scale."""
-    return max(160, 30 * max(scales))
+    x 4) and the mound network ~100 px at each of its scales."""
+    return max(160, 30 * max(scales), 100 * max(mound_scales))
 
 
 class _DisjointSet:

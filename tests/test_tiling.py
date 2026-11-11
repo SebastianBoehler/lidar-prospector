@@ -70,7 +70,7 @@ def run(core, halo):
 
 def key_points(res):
     pits = sorted((round(r), round(c)) for r, c, *_ in res.pits)
-    mounds = sorted((round(r), round(c)) for r, c, _ in res.mounds)
+    mounds = sorted((round(r), round(c)) for r, c, *_ in res.mounds)
     return pits, mounds
 
 
@@ -160,3 +160,27 @@ def test_mounds_are_never_reported_in_nodata():
         ArraySource(z), (0, -1200, 1200, 0), plan(2048, 128), cfg, log=lambda *_: None, gate=MemoryGate(0)
     )
     assert hole.mounds == []
+
+
+def test_mound_pyramid_finds_a_large_mound_only_at_a_coarser_scale():
+    from lidarprospector.tiling import mound_scales_for
+
+    z = np.full((1200, 1200), 50.0, np.float32)
+    z += 0.01 * np.random.default_rng(3).standard_normal(z.shape).astype("float32")
+    z += gauss2d(z.shape, 300, 300, 1.2, 4.0)  # a barrow-sized mound (~10 m)
+    z += gauss2d(z.shape, 800, 800, 1.5, 40.0)  # a platform-sized mound (~100 m)
+
+    def mound_fn(tile):  # scale-free: only sees pixels, like the trained network
+        return np.nan_to_num(np.clip(local_relief(tile, sigma_m=15) / 0.8, 0, 1))
+
+    assert mound_scales_for(30) == (1, 2)
+    assert mound_scales_for(150) == (1, 2, 4, 8)
+    assert mound_scales_for(5) == (1,)
+    cfg = ScanConfig(mound_fn=mound_fn, min_mound_prob=0.5, mound_scales=(1, 4), max_mounds_per_km2=None)
+    res = scan(
+        ArraySource(z), (0, -1200, 1200, 0), plan(2048, 128), cfg, log=lambda *_: None, gate=MemoryGate(0)
+    )
+    near = lambda r0, c0, tol: [m for m in res.mounds if abs(m[0] - r0) < tol and abs(m[1] - c0) < tol]  # noqa: E731
+    assert any(m[3] == 1 for m in near(300, 300, 8))  # the small mound is found at the fine level
+    assert any(m[3] == 4 for m in near(800, 800, 30))  # the big one at the coarse level
+    assert not any(m[3] == 1 and m[2] > 0.9 for m in near(800, 800, 30))  # not as a fine-level hit

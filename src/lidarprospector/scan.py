@@ -14,7 +14,7 @@ from .pipeline import ScanConfig, scan
 from .runtime import make_plan
 from .sources import EnglandEA, GeoTiffSource, UsgsEpt, source_for
 from .sources.presets import preset_source
-from .tiling import required_halo, scales_for
+from .tiling import mound_scales_for, required_halo, scales_for
 
 
 def build_source(args):
@@ -63,6 +63,9 @@ def main() -> None:
     ap.add_argument(
         "--max-size-m", type=float, default=30.0, help="widest structure; larger adds coarser pyramid levels"
     )
+    ap.add_argument(
+        "--max-mound-m", type=float, default=30.0, help="largest mound to look for (adds coarser levels)"
+    )
     ap.add_argument("--mounds", type=Path, help="U-Net weights from train_unet; omit to skip mound detection")
     ap.add_argument(
         "--mounds-per-km2", type=float, default=22.0, help="mound candidates kept per km2, best first"
@@ -77,13 +80,17 @@ def main() -> None:
     source = build_source(args)
     bbox = build_bbox(args, source)
     scales = scales_for(args.min_size_m, args.max_size_m)
+    mound_scales = mound_scales_for(args.max_mound_m)
     plan = make_plan(
-        required_halo(scales), args.ram_fraction, max_budget_gb=args.max_budget_gb, io_workers=args.io_workers
+        required_halo(scales, mound_scales),
+        args.ram_fraction,
+        max_budget_gb=args.max_budget_gb,
+        io_workers=args.io_workers,
     )
     print(plan.describe())
-    print(f"pyramid       scales {scales} for structures {args.min_size_m:g}-{args.max_size_m:g} m")
+    print(f"pyramid       lines {scales} ({args.min_size_m:g}-{args.max_size_m:g} m), mounds {mound_scales}")
     print(f"area          {bbox} (EPSG:{source.epsg}); data: {source.licence}; {source.attribution}\n")
-    cfg = ScanConfig(scales=scales, max_mounds_per_km2=args.mounds_per_km2)
+    cfg = ScanConfig(scales=scales, mound_scales=mound_scales, max_mounds_per_km2=args.mounds_per_km2)
     if args.mask_roads:
         from .roads import RoadIndex, road_polylines
 

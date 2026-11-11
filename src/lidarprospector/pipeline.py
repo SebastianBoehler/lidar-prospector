@@ -37,6 +37,7 @@ class ScanConfig:
     thresholds: dict = field(default_factory=lambda: dict(DEFAULT_THRESHOLDS))
     mound_fn: Callable[[np.ndarray], np.ndarray] | None = None  # dtm tile -> barrow probability map
     min_mound_prob: float = 0.3
+    mound_scales: tuple[int, ...] = (1,)  # pyramid factors for the mound network (see mound_scales_for)
     # Probabilities from a loss that up-weights positives are not calibrated, so rank instead: keep the
     # best N per km2 over the whole scan (the benchmark's K=200 per 9 km2 is ~22). None keeps all.
     max_mounds_per_km2: float | None = 22.0
@@ -53,7 +54,9 @@ class ScanResult:
     source: str
     licence: str
     attribution: str
-    mounds: list[tuple[float, float, float]] = field(default_factory=list)  # row, col, prob (base px)
+    mounds: list[tuple[float, float, float, int]] = field(
+        default_factory=list
+    )  # row, col (base px), prob, scale
     pits: list[tuple[float, float, float, float]] = field(default_factory=list)  # row, col, radius_m, depth_m
     lines: list[tuple[Line, int]] = field(default_factory=list)  # (line in pixels of its scale, scale)
     tiles: int = 0
@@ -75,8 +78,8 @@ class ScanResult:
             lon, lat = to_ll.transform(*self.xy(r, c))
             feature(kind, {"type": "Point", "coordinates": [lon, lat]}, **props)
 
-        for r, c, p in self.mounds:
-            point("mound", r, c, score=round(float(p), 3))
+        for r, c, p, s in self.mounds:
+            point("mound", r, c, score=round(float(p), 3), scale=s)
         for r, c, rad, depth in self.pits:
             point("pit", r, c, radius_m=round(rad, 1), depth_m=round(depth, 2))
         for line, s in self.lines:
@@ -94,18 +97,20 @@ def _process(tile: Tile, z: np.ndarray, cfg: ScanConfig):
     off = np.array([tile.row0 - h, tile.col0 - h])
     mounds, pits = [], []
     if cfg.mound_fn is not None:
-        prob = cfg.mound_fn(z)
-        # the network sees edge-filled nodata as terrain: keep only peaks well inside real data
-        inside = ndimage.binary_erosion(~np.isnan(z), iterations=6)
-        pk = peaks_from_prob(prob)
-        pk = pk[inside[pk[:, 0], pk[:, 1]]]
-        g = pk + off
-        own = tile.owns(g[:, 0], g[:, 1])
-        mounds = [
-            (r, c, prob[p[0], p[1]])
-            for (r, c), p in zip(g[own], pk[own], strict=True)
-            if prob[p[0], p[1]] >= cfg.min_mound_prob
-        ]
+        for s in cfg.mound_scales:
+            zs = downsample(z, s)
+            prob = cfg.mound_fn(zs)
+            # the network sees edge-filled nodata as terrain: keep only peaks well inside real data
+            inside = ndimage.binary_erosion(~np.isnan(zs), iterations=6)
+            pk = peaks_from_prob(prob)
+            pk = pk[inside[pk[:, 0], pk[:, 1]]]
+            g = pk * s + s // 2 + off
+            own = tile.owns(g[:, 0], g[:, 1])
+            mounds += [
+                (r, c, prob[p[0], p[1]], s)
+                for (r, c), p in zip(g[own], pk[own], strict=True)
+                if prob[p[0], p[1]] >= cfg.min_mound_prob
+            ]
     for d in depressions(z):
         if tile.owns(np.array([d.row + off[0]]), np.array([d.col + off[1]]))[0]:
             pits.append((d.row + off[0], d.col + off[1], d.radius_m, d.depth_m))
@@ -141,12 +146,23 @@ def _without_roads(line: Line, s: int, res: ScanResult, cfg: ScanConfig) -> list
     return [Line(line.kind, 0.0, pix[labels == k]) for k in range(labels.max() + 1)]
 
 
+def _dedupe_across_scales(mounds: list) -> list:
+    """The same structure can fire at neighbouring pyramid levels: keep the strongest, and drop a detection
+    from a different scale that lies within ~6 cells (at the coarser scale) of an accepted one. Detections
+    at the same scale are already separated by the peak finder."""
+    kept: list = []
+    for m in sorted(mounds, key=lambda m: -m[2]):
+        if not any(m[3] != k[3] and np.hypot(m[0] - k[0], m[1] - k[1]) < 6 * max(m[3], k[3]) for k in kept):
+            kept.append(m)
+    return kept
+
+
 def scan(
     source, bbox, plan: Plan, cfg: ScanConfig | None = None, log=print, gate: MemoryGate | None = None
 ) -> ScanResult:
     cfg = cfg or ScanConfig()
-    align = max(cfg.scales)
-    halo = math.ceil(max(plan.halo, required_halo(cfg.scales)) / align) * align
+    align = max(*cfg.scales, *cfg.mound_scales)
+    halo = math.ceil(max(plan.halo, required_halo(cfg.scales, cfg.mound_scales)) / align) * align
     core = max(align, (plan.tile_core // align) * align)
     grid = TileGrid(bbox, cfg.cell, core, halo)
     gate = gate or MemoryGate()
@@ -192,6 +208,7 @@ def scan(
             for part in _without_roads(line, s, res, cfg):
                 if keep_line(part, cfg.min_extent_m / (cfg.cell * s)):
                     res.lines.append((part, s))
+    res.mounds = _dedupe_across_scales(res.mounds)
     if cfg.max_mounds_per_km2 is not None:
         area_km2 = grid.width * grid.height * cfg.cell**2 / 1e6
         keep = max(1, round(cfg.max_mounds_per_km2 * area_km2))
