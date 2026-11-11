@@ -141,3 +141,22 @@ def test_road_pixels_are_removed_but_a_bank_crossing_the_road_survives():
     assert (np.abs(rows - 600) > 8).all()  # nothing left within the road corridor
     crossing = [k for k, _ in res.lines if k.pixels[:, 1].min() > 480 and k.pixels[:, 1].max() < 520]
     assert len(crossing) >= 2  # the vertical bank survives as two pieces, above and below the road
+
+
+def test_mounds_are_never_reported_in_nodata():
+    def bump_at_global_600(z):  # a network that "sees" a mound at global (600, 600) even over nodata
+        prob = np.zeros(z.shape)
+        prob[728, 728] = 1.0  # local = global + the 128 px halo of the single tile
+        return prob
+
+    cfg = ScanConfig(mound_fn=bump_at_global_600, min_mound_prob=0.3)
+    z = landscape()
+    ok = scan(
+        ArraySource(z), (0, -1200, 1200, 0), plan(2048, 128), cfg, log=lambda *_: None, gate=MemoryGate(0)
+    )
+    assert len(ok.mounds) == 1
+    z[550:650, 550:650] = np.nan  # survey has a hole exactly there
+    hole = scan(
+        ArraySource(z), (0, -1200, 1200, 0), plan(2048, 128), cfg, log=lambda *_: None, gate=MemoryGate(0)
+    )
+    assert hole.mounds == []

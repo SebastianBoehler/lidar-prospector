@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 from pyproj import Transformer
+from scipy import ndimage
 from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import connected_components
 from scipy.spatial import cKDTree
@@ -93,7 +94,11 @@ def _process(tile: Tile, z: np.ndarray, cfg: ScanConfig):
     off = np.array([tile.row0 - h, tile.col0 - h])
     mounds, pits = [], []
     if cfg.mound_fn is not None:
-        pk = peaks_from_prob(prob := cfg.mound_fn(z))
+        prob = cfg.mound_fn(z)
+        # the network sees edge-filled nodata as terrain: keep only peaks well inside real data
+        inside = ndimage.binary_erosion(~np.isnan(z), iterations=6)
+        pk = peaks_from_prob(prob)
+        pk = pk[inside[pk[:, 0], pk[:, 1]]]
         g = pk + off
         own = tile.owns(g[:, 0], g[:, 1])
         mounds = [
