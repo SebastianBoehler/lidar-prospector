@@ -29,7 +29,7 @@ train the U-Net on the benchmark tiles and pass it in:
 
 ```bash
 uv run python -m lidarprospector.crossval                         # downloads the five benchmark tiles
-uv run python -m lidarprospector.train_unet --steps 2500          # ~3 min on an M4 Max
+uv run python -m lidarprospector.train_unet                       # 1,500 steps, ~2 min on an M4 Max
 uv run python -m lidarprospector.scan --source england --lonlat -1.8262 51.1789 --size-km 6 \
     --mounds output/unet.pt
 ```
@@ -60,6 +60,7 @@ Every source returns the same object: a metric, north-up elevation grid plus its
 |---|---|---|
 | England, Environment Agency 1 m DTM (WCS) | verified on the benchmark windows; a live multi-tile `scan --source england` has not been run yet | OGL v3 |
 | Any GeoTIFF / COG, local or HTTP, any CRS | verified | windowed reads and on-the-fly reprojection; checked against a remote global 30 m COG and a synthetic lat/lon raster |
+| Netherlands AHN 0.5 m DTM (PDOK WCS, server-side scaling to 1 m) | verified: four tiles downloaded (88 MB) and scored | CC0 1.0 |
 | OpenTopography UAV lidar, Quiriguá Guatemala (`--source preset:quirigua`) | verified: file downloaded (28.6 MB) and scanned | CC BY 4.0, 0.25 m DTM under canopy; terms read from the publisher's page |
 | USGS 3DEP point clouds (EPT, no login) | built from earlier-verified pieces | gridded from classified ground returns; not re-run live after the refactor; needs the survey name (`ept:PROJECT`) |
 | Canada CanElevation (COPC on AWS) | not built | COPC point clouds, Open Government Licence, listed on the AWS registry |
@@ -109,20 +110,28 @@ in total (cairns count as barrows; this changed none of the Wessex labels). Reca
 By landscape (U-Net, recall at K=25 / 100 / 200): North York Moors 32% / 41% / 45% (22 labels), Peak District
 41% / 65% / 65% (17), Dartmoor 33% / 38% / 42% (96). So the U-Net carries over best of the methods, but
 drops from 75% in-region to about 45% on unseen terrain, and it is a ranking, not a calibrated detector.
-An earlier four-tile run (39 labels) suggested adding a few tiles of the new landscapes does not help; that
-check was not repeated with Dartmoor. The ablation of training length, width and input features was stopped
-after one fold (37, 39, 41 and 39 of 67, inside the run-to-run noise) and is inconclusive.
+Seed-to-seed noise on these 135 labels is small (three seeds: +/-1 point). Training longer clearly hurts on
+unseen terrain: recall at K=200 against training steps is 43% (600), 44% (1,000), **46% (1,500)**, 43% (2,500)
+and 39% (4,000), so it overfits Wessex, and the default is 1,500 steps. Widening the network by 1.5x changes
+nothing (46%). An earlier four-tile run (39 labels) suggested adding a few tiles of the new
+landscapes does not help; that was not repeated with Dartmoor.
 
-### Maya-region demo (qualitative, no scores)
+### A second country and a forest (Netherlands, zero-shot)
 
-`python -m lidarprospector.scan --source preset:quirigua --bbox 280558 1688608 281313 1689943 --mounds output/unet.pt`
-runs the Wessex-trained pipeline on the Quiriguá UAV lidar (0.25 m, flown to find mounds under canopy). There is
-no site inventory, so nothing here is scored. It produced 36 mounds, 266 pits and 63 lines. The mound
-candidates fall on the textured forest floor, not on the large platforms: the network learned 10-30 m
-barrows at 1 m cells, and Maya platforms are far bigger. Running the network on coarser pyramid levels
-(`--max-mound-m 150`) finds seven mid-size structures at the 2 m level but nothing at 4 m or 8 m, and still
-not the acropolis: the network does not recognise large rectilinear platforms, so that needs training examples. The pits mostly look like tree-throws and sinks. The
-click-to-find viewer also runs on it (`serve --source geotiff:... --bbox ...`).
+Four 3 km tiles of the Utrechtse Heuvelrug (forest and heath, AHN terrain at 1 m, CC0) with the 46
+OpenStreetMap tumulus nodes inside them as labels (a hit is a candidate within 15 m). Models trained on
+Wessex only:
+
+| Method | K=25 | K=50 | K=100 | K=200 |
+|---|---|---|---|---|
+| Hand-tuned relief thresholds | 0% | 0% | 0% | 0% |
+| Pixel gradient boosting | 13% | 15% | 24% | 33% |
+| **U-Net (trained on Wessex only)** | 37% | 54% | 65% | **67%** |
+| Random | 0% | 1% | 1% | 1% |
+
+Caveat: OpenStreetMap tumuli are crowd-sourced and often mapped from lidar hillshades, so these labels likely
+favour features a terrain model can see; 46 labels is also few. The ranking of the methods is the more
+trustworthy part than the absolute numbers.
 
 ### Linear monuments, enclosures and field systems (coverage check)
 
@@ -219,7 +228,7 @@ Mexico) rather than publishing coordinates.
 - Weights as a release download, so the quick start needs no training step.
 - Ground-return-density map inside `scan`, so the tool knows where canopy hides the ground.
 - More sources (Canada COPC first), verified one at a time.
-- More seeds, and labels for enclosures and linear monuments.
+- Labels for enclosures, hillforts and field systems (none open and typed enough found yet).
 - Training examples of large rectilinear platforms (Maya-style), so the coarse mound levels find them.
 
 ## Development

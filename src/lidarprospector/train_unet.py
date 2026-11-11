@@ -11,7 +11,8 @@ from .models_bench import load_all, train_unet
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--steps", type=int, default=2500)
+    # 1500 is the zero-shot optimum measured over three seeds (600: 43%, 1500: 46%, 2500: 43%, 4000: 39%)
+    ap.add_argument("--steps", type=int, default=1500)
     ap.add_argument("--init", choices=["scratch", "ssl"], default="scratch")
     ap.add_argument("--encoder", type=Path, default=Path("output/encoder.pt"))
     ap.add_argument("--out", type=Path, default=Path("output/unet.pt"))

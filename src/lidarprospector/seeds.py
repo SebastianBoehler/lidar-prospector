@@ -19,20 +19,25 @@ VARIANTS = {
     "control: 1500 steps, 1.0x": {"steps": 1500},
     "longer: 4000 steps": {"steps": 4000},
     "wider: 1.5x channels": {"steps": 1500, "widths": scaled_widths(1.5)},
+    "shorter: 600 steps": {"steps": 600},
+    "shorter: 1000 steps": {"steps": 1000},
+    "default shipped: 2500 steps": {"steps": 2500},
 }
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--seeds", type=int, default=3)
+    ap.add_argument("--only", help="run only variants whose name contains this text")
     a = ap.parse_args()
     device = pick_device()
     wessex = load_all(tiles())
     new = load_all([b for _, b in landscape_tiles()])
     targets = sum(t["n"] for t in new)
-    recall: dict[str, list[dict[int, float]]] = {v: [] for v in VARIANTS}
+    variants = {n: c for n, c in VARIANTS.items() if not a.only or a.only in n}
+    recall: dict[str, list[dict[int, float]]] = {v: [] for v in variants}
     for seed in range(a.seeds):
-        for name, cfg in VARIANTS.items():
+        for name, cfg in variants.items():
             t0 = time.time()
             arch = {k: v for k, v in cfg.items() if k == "widths"}
             model = train_unet(wessex, None, cfg["steps"], device, seed=seed, **arch)
