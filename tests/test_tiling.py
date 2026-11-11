@@ -125,3 +125,19 @@ def test_a_bank_crossing_several_tiles_is_one_long_line():
     res = run(core=320, halo=128)
     lengths = sorted(round(k.extent) for k, _ in res.lines if k.kind == "bank")
     assert lengths and lengths[-1] > 900  # the 1000 px bank survives as a single line
+
+
+def test_road_pixels_are_removed_but_a_bank_crossing_the_road_survives():
+    from lidarprospector.roads import RoadIndex
+
+    # the horizontal bank sits on row 600 (y = -600); the vertical bank at col 500 crosses it
+    road = np.array([[0.0, -600.0], [1200.0, -600.0]])
+    cfg = ScanConfig(min_extent_m=200, roads=RoadIndex([road]))
+    src = ArraySource(landscape())
+    res = scan(src, (0, -1200, 1200, 0), plan(512, 128), cfg, log=lambda *_: None, gate=MemoryGate(0))
+    plain = run(512, 128)
+    assert line_pixels(res) < line_pixels(plain)  # strictly fewer pixels: the road-aligned bank is gone
+    rows = np.concatenate([k.pixels[:, 0] for k, _ in res.lines])
+    assert (np.abs(rows - 600) > 8).all()  # nothing left within the road corridor
+    crossing = [k for k, _ in res.lines if k.pixels[:, 1].min() > 480 and k.pixels[:, 1].max() < 520]
+    assert len(crossing) >= 2  # the vertical bank survives as two pieces, above and below the road

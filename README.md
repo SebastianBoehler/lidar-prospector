@@ -156,15 +156,16 @@ Mexico) rather than publishing coordinates.
   unscheduled places from the embedding search are mostly field boundaries, ditches and lynchets.
 - Models and detectors assume 1 m cells. Coarser sources (such as 5 m or 30 m grids) are resampled and
   small structures are lost; the scan warns when the source is coarser than 2 m.
-- Linear detections still include hedge banks, tracks and valley edges; the OpenStreetMap road mask is
-  not yet part of `scan`.
+- Linear detections still include hedge banks, tracks and valley edges. `--mask-roads` removes the parts
+  of lines that run along OpenStreetMap roads (unit-tested with synthetic roads; the live Overpass request
+  in this form has not been run).
 - Enclosures, hillforts and field systems are not detected, and the structure-size pyramid applies to
   the line finder only (the mound network and pit finder work at 1 m).
 
 ## Roadmap
 
 - Weights as a release download, so the quick start needs no training step.
-- Road mask and ground-return-density map inside `scan`.
+- Ground-return-density map inside `scan`, so the tool knows where canopy hides the ground.
 - More sources (Canada COPC first), verified one at a time.
 - A broader benchmark outside Wessex, and labels for enclosures and linear monuments.
 

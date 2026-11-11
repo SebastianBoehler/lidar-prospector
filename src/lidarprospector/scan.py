@@ -62,6 +62,7 @@ def main() -> None:
     ap.add_argument(
         "--mounds-per-km2", type=float, default=22.0, help="mound candidates kept per km2, best first"
     )
+    ap.add_argument("--mask-roads", action="store_true", help="drop lines along OpenStreetMap roads (ODbL)")
     ap.add_argument("--ram-fraction", type=float, default=0.5, help="share of currently free RAM to use")
     ap.add_argument("--max-budget-gb", type=float, help="hard ceiling on memory use")
     ap.add_argument("--io-workers", type=int, default=4, help="parallel downloads")
@@ -78,6 +79,10 @@ def main() -> None:
     print(f"pyramid       scales {scales} for structures {args.min_size_m:g}-{args.max_size_m:g} m")
     print(f"area          {bbox} (EPSG:{source.epsg}); data: {source.licence}; {source.attribution}\n")
     cfg = ScanConfig(scales=scales, max_mounds_per_km2=args.mounds_per_km2)
+    if args.mask_roads:
+        from .roads import RoadIndex, road_polylines
+
+        cfg.roads = RoadIndex(road_polylines(bbox, source.epsg))
     if args.mounds:
         from .mounds import unet_mound_fn
 

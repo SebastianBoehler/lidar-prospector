@@ -10,8 +10,12 @@ from dataclasses import dataclass, field
 
 import numpy as np
 from pyproj import Transformer
+from scipy.sparse import coo_matrix
+from scipy.sparse.csgraph import connected_components
+from scipy.spatial import cKDTree
 
 from .peaks import peaks_from_prob
+from .roads import RoadIndex
 from .runtime import MemoryGate, Plan
 from .shapes import DEFAULT_THRESHOLDS, Line, depressions, keep_line, line_fragments
 from .tiling import (
@@ -35,6 +39,8 @@ class ScanConfig:
     # Probabilities from a loss that up-weights positives are not calibrated, so rank instead: keep the
     # best N per km2 over the whole scan (the benchmark's K=200 per 9 km2 is ~22). None keeps all.
     max_mounds_per_km2: float | None = 22.0
+    roads: RoadIndex | None = None  # drop lines that run along mapped roads / railways
+    road_radius_m: float = 10.0
 
 
 @dataclass
@@ -115,6 +121,21 @@ def _process(tile: Tile, z: np.ndarray, cfg: ScanConfig):
     return mounds, pits, frags
 
 
+def _without_roads(line: Line, s: int, res: ScanResult, cfg: ScanConfig) -> list[Line]:
+    """Remove pixels lying on mapped roads, then re-split what is left: a bank that crosses a road is
+    one skeleton component with it, and must survive as the earthwork it is."""
+    if cfg.roads is None:
+        return [line]
+    xy = np.array([res.xy(r, c, s) for r, c in line.pixels])
+    pix = line.pixels[~cfg.roads.near(xy, cfg.road_radius_m + s * cfg.cell)]
+    if len(pix) == 0:
+        return []
+    pairs = cKDTree(pix).query_pairs(1.5, output_type="ndarray")
+    graph = coo_matrix((np.ones(len(pairs)), (pairs[:, 0], pairs[:, 1])), shape=(len(pix), len(pix)))
+    _, labels = connected_components(graph, directed=False)
+    return [Line(line.kind, 0.0, pix[labels == k]) for k in range(labels.max() + 1)]
+
+
 def scan(
     source, bbox, plan: Plan, cfg: ScanConfig | None = None, log=print, gate: MemoryGate | None = None
 ) -> ScanResult:
@@ -163,8 +184,9 @@ def scan(
             log(f"tile {done}/{len(grid)} {tile.index}: {len(mounds)} mounds, {len(pits)} pits")
     for s, frags in all_frags.items():
         for line in merge_line_fragments(frags):
-            if keep_line(line, cfg.min_extent_m / (cfg.cell * s)):
-                res.lines.append((line, s))
+            for part in _without_roads(line, s, res, cfg):
+                if keep_line(part, cfg.min_extent_m / (cfg.cell * s)):
+                    res.lines.append((part, s))
     if cfg.max_mounds_per_km2 is not None:
         area_km2 = grid.width * grid.height * cfg.cell**2 / 1e6
         keep = max(1, round(cfg.max_mounds_per_km2 * area_km2))
