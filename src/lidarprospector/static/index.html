@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>lidar-prospector</title>
+<style>
+  :root { --bg:#f6f5f1; --fg:#1d1d1b; --muted:#6b6a64; --panel:#ffffff; --line:#d9d6cc;
+          --pos:#1a9850; --neg:#d73027; --hit:#e08a00; --known:#2b6cb0; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#16171a; --fg:#ecebe6; --muted:#9a9990; --panel:#202226; --line:#383a40; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.45 system-ui,sans-serif; }
+  header { display:flex; flex-wrap:wrap; gap:12px 20px; align-items:center; padding:12px 16px;
+           background:var(--panel); border-bottom:1px solid var(--line); position:sticky; top:0; z-index:2; }
+  h1 { font-size:16px; margin:0; }
+  .group { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  button { font:inherit; padding:6px 12px; border:1px solid var(--line); border-radius:6px;
+           background:var(--panel); color:var(--fg); cursor:pointer; }
+  button.on { outline:2px solid currentColor; }
+  button.pos { color:var(--pos); } button.neg { color:var(--neg); }
+  button.primary { background:var(--fg); color:var(--bg); border-color:var(--fg); }
+  #status { color:var(--muted); font-size:14px; }
+  #wrap { position:relative; overflow:auto; height:calc(100vh - 110px); }
+  #stage { position:relative; width:max-content; }
+  #img { display:block; }
+  canvas { position:absolute; inset:0; cursor:crosshair; }
+  label { color:var(--muted); font-size:14px; display:flex; gap:6px; align-items:center; }
+</style>
+</head>
+<body>
+<header>
+  <h1>lidar-prospector</h1>
+  <div class="group" role="group" aria-label="Click mode">
+    <button id="mPos" class="pos on">+ Example</button>
+    <button id="mNeg" class="neg">- Not this</button>
+  </div>
+  <div class="group">
+    <button id="find" class="primary">Find similar</button>
+    <button id="clear">Clear</button>
+    <label><input type="checkbox" id="showKnown"> show scheduled monuments</label>
+  </div>
+  <span id="status">Click a few structures that look like what you want, then Find similar.</span>
+</header>
+<div id="wrap"><div id="stage"><img id="img" src="/tile.png" alt="Hillshaded terrain"><canvas id="cv"></canvas></div></div>
+<script>
+const $ = id => document.getElementById(id);
+const img = $("img"), cv = $("cv"), ctx = cv.getContext("2d");
+let mode = "pos", pos = [], neg = [], found = [], known = [], info = null;
+
+function setMode(m) { mode = m; $("mPos").classList.toggle("on", m === "pos"); $("mNeg").classList.toggle("on", m === "neg"); }
+$("mPos").onclick = () => setMode("pos"); $("mNeg").onclick = () => setMode("neg");
+$("clear").onclick = () => { pos = []; neg = []; found = []; draw(); say("Cleared."); };
+$("showKnown").onchange = draw;
+
+function say(t) { $("status").textContent = t; }
+function ring(r, c, rad, color, w) { ctx.beginPath(); ctx.arc(c, r, rad, 0, 7); ctx.strokeStyle = color; ctx.lineWidth = w; ctx.stroke(); }
+function css(v) { return getComputedStyle(document.documentElement).getPropertyValue(v); }
+
+function draw() {
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  if ($("showKnown").checked) known.forEach(([r, c]) => ring(r, c, 14, css("--known"), 2));
+  found.forEach((p, i) => { ring(p.row, p.col, 18, css("--hit"), 2.5);
+    ctx.fillStyle = css("--hit"); ctx.font = "bold 13px system-ui"; ctx.fillText(i + 1, p.col + 20, p.row - 14); });
+  pos.forEach(([r, c]) => ring(r, c, 12, css("--pos"), 3));
+  neg.forEach(([r, c]) => ring(r, c, 12, css("--neg"), 3));
+}
+
+cv.onclick = e => {
+  const b = cv.getBoundingClientRect(), x = e.clientX - b.left, y = e.clientY - b.top;
+  (mode === "pos" ? pos : neg).push([y, x]);
+  draw(); say(`${pos.length} example(s), ${neg.length} rejected. Click Find similar.`);
+};
+
+$("find").onclick = async () => {
+  if (!pos.length) return say("Click at least one example first.");
+  say("Searching ...");
+  const r = await fetch("/search", { method: "POST", body: JSON.stringify({ pos, neg, k: 30 }) });
+  if (!r.ok) return say("Search failed: " + await r.text());
+  found = await r.json(); draw();
+  say(`${found.length} candidates (orange). Click one with + Example if it's right, or - Not this if not, then search again.`);
+};
+
+fetch("/info").then(r => r.json()).then(i => {
+  info = i; known = i.known; cv.width = i.width; cv.height = i.height;
+  cv.style.width = i.width + "px"; cv.style.height = i.height + "px"; draw();
+});
+</script>
+</body>
+</html>
