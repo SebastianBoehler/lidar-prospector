@@ -9,6 +9,11 @@ RELIEF_SIGMAS = (1.5, 3.0, 6.0, 12.0)
 HESSIAN_SIGMAS = (2.0, 4.0, 8.0)
 
 
+def max_sigma_px() -> int:
+    """Widest Gaussian used by `feature_stack` (the 'regional' channel), in pixels at 1 m cells."""
+    return 75
+
+
 def fill_nodata(dtm):
     nan = np.isnan(dtm)
     if not nan.any():

@@ -13,6 +13,7 @@ dependencies = [
     "rasterio",
     "scikit-image",
     "scikit-learn",
+    "psutil>=7.2.2",
 ]
 license = "Apache-2.0"
 readme = "README.md"
