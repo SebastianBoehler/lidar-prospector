@@ -13,7 +13,7 @@ uv run pre-commit install
 
 ```bash
 uv run ruff check . --fix && uv run ruff format .
-uv run pytest -W error
+uv run pytest
 ```
 
 CI runs the same on Python 3.11 and 3.13.

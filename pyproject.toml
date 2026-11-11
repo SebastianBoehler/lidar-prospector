@@ -43,3 +43,8 @@ ignore = ["E741"]  # l1/l2 eigenvalue names
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# our own warnings are errors; ignore one upstream notice from affine (used inside rasterio.from_origin)
+filterwarnings = [
+    "error",
+    "ignore:Use `@` matmul instead:PendingDeprecationWarning",
+]
