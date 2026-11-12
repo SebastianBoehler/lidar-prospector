@@ -64,7 +64,9 @@ Same corpus (154 km²), same 3,000 steps, same frozen prompt benchmark, 10 examp
 | Global contrastive encoder (earlier run, 5 English tiles) | 26% | 18% | 2% | 4% |
 | **Dense contrastive** (same place, different view) | **27%** | 5% | 3% | 0% |
 | *Reference: hand terrain features* | 35% | 16% | 1% | 0% |
-| *Reference: barrow-trained U-Net features (needs labels)* | 61% | 32% | 2% | 6% |
+| *Reference: barrow-trained U-Net features (needs labels; trained on the 5 Wessex benchmark tiles, so **61% is partly in-sample**)* | 61%* | 32% | 2% | 6% |
+| *Labelled, clean: same U-Net trained on 103 corpus tiles disjoint from the benchmark (49 barrows+cairns)* | 18% | 10% | 1% | 0% |
+| *Labelled, other types only (no barrows, cairns, hut circles, stone settings)* | 20% | 11% | 1% | 0% |
 
 Data-scaling probe (dense contrastive, same steps): trained on **45 km²** (5 terrains) it reaches barrows 12%,
 cairns 2%, hut circles 1%; on **154 km²** (3.4x more) barrows 27%, cairns 5%, hut circles 3%.
@@ -90,8 +92,27 @@ being a final verdict on label-free pretraining: (1) steps were held fixed, so t
 once while the 154 km² run saw each about ten times; a longer run is untested; (2) the benchmark noise is about
 +/-5 points, so 27% vs 20% is weak evidence of a decline, but 20% vs 35% is not noise; (3) the objective (same
 place, different view) may simply carry little shape information at 1 m. What the data does support: more unlabelled
-terrain alone is not a route to the supervised features' 61% at this budget. The labelled comparison (M3b) is now the
-more informative next experiment.
+terrain alone is not a route to the supervised features' 61% at this budget. The labelled comparison (M3b) was then run:
+see 3c.
+
+### 3c. Labelled comparison on benchmark-disjoint tiles (measured, 12 Nov)
+
+The same U-Net, 1,500 steps, trained with Historic England polygons on the 103 English corpus tiles (none overlaps
+a benchmark tile), then frozen and put through the same prompt benchmark. The corpus tiles are random cells, so
+labels are sparse: 35 round barrows, 14 cairns, 3 hut circles, 1 stone setting.
+
+- Typed (positives = barrows, cairns, hut circles, stone settings; other monuments ignored): barrows 18%, cairns 10%.
+- Other types only (positives = enclosures, field systems, dykes and the like; the benchmark's four types ignored):
+  barrows 20%, cairns 11%, hut circles 1%.
+
+Two corrections follow. (1) The 61% barrow figure used throughout this document came from a network trained on the
+5 Wessex tiles, which hold about 119 of the benchmark's 146 barrows, so it is **in-sample for most barrows and not a
+valid supervised ceiling**. Its 32% on cairns is on moorland tiles it never saw and stands. (2) With about 50
+labelled objects no learned feature source tried so far (label-free at 45 to 1,477 km², or labelled on disjoint tiles)
+beats the 13 hand-built terrain features (35% / 16%). The labelled network that did better saw 119 barrows in one
+dense landscape, so label quantity and density matter more than the pretraining objective at this scale. Training
+on benchmark-disjoint terrain with several hundred labelled objects would need new label-dense tiles (a new
+download, not yet approved).
 
 ## 4. Hypotheses and how each is tested
 

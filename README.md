@@ -188,7 +188,9 @@ Own-type recall with 10 example prompts:
 | Feature source for the probe | Round barrow (146) | Cairn (91) | Hut circle (45) | Stone setting (17) |
 |---|---|---|---|---|
 | Hand terrain features | 35% | 16% | 1% | 0% |
-| **Barrow-trained U-Net's dense features** | **61%** | **32%** | 2% | 6% |
+| Barrow-trained U-Net's dense features (trained on the 5 Wessex tiles: the barrow figure is **partly in-sample**, the cairn figure is on tiles it never saw) | 61%* | 32% | 2% | 6% |
+| Same network trained with labels on 103 *other* tiles (typed, 49 barrows and cairns; clean) | 18% | 10% | 1% | 0% |
+| Same, trained on monuments of *other* types only (no barrows, cairns, hut circles) | 20% | 11% | 1% | 0% |
 | Self-supervised encoder features | 26% | 18% | 2% | 4% |
 | Template matching on raw terrain (no learning) | 47% | 10% | 0% | 0% |
 | Random placement | 2% | 1% | 1-2% | 3% |
@@ -286,7 +288,9 @@ The plan for a pretrained terrain encoder is in [docs/foundation-model.md](docs/
 label-free pretraining objective (masked reconstruction, contrastive, dense contrastive) beats hand-built terrain
 features. The best one (dense contrastive) went 12% -> 27% -> 20% on barrow prompts at 45, 154 and 1,477 km² of
 unlabelled terrain (fixed training steps), so more label-free data alone has not closed the gap to hand features (35%)
-or to a barrow-trained network (61%). A labelled comparison is the next experiment.
+or to a barrow-trained network. The labelled comparison on benchmark-disjoint tiles (49 labelled barrows and cairns)
+reached only 18% and 10%, so the earlier 61% barrow figure was in-sample and the cause is label quantity, not the
+objective: the open question is how many labelled tiles it takes.
 
 - Weights as a release download, so the quick start needs no training step.
 - Ground-return-density map inside `scan`, so the tool knows where canopy hides the ground.
