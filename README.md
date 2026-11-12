@@ -282,8 +282,9 @@ Mexico) rather than publishing coordinates.
 
 ## Roadmap
 
-The plan for a pretrained terrain encoder, with a measured (negative) pilot, is in
-[docs/foundation-model.md](docs/foundation-model.md).
+The plan for a pretrained terrain encoder is in [docs/foundation-model.md](docs/foundation-model.md). So far no
+label-free pretraining objective (masked reconstruction, contrastive, dense contrastive) beats hand-built terrain
+features at 154 km², but the best one improves clearly with data (barrow prompts 12% at 45 km², 27% at 154 km²).
 
 - Weights as a release download, so the quick start needs no training step.
 - Ground-return-density map inside `scan`, so the tool knows where canopy hides the ground.

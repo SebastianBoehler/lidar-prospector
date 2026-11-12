@@ -52,14 +52,42 @@ circles 3% at 10 prompts. Better than 16 m masks but still below hand-built feat
 main cause; the objective as formulated (reconstruct hidden terrain from context) does not produce features
 that separate shapes, at this scale.
 
-Consequence for the plan: **do not scale the corpus yet.** Scaling a failing objective wastes the expensive
-part. Objective experiments are cheap (about 20 minutes each at this corpus size) and come first.
+### 3b. Objective experiments and a data-scaling probe (measured)
+
+Same corpus (154 km²), same 3,000 steps, same frozen prompt benchmark, 10 example prompts, own-type recall:
+
+| Label-free objective / feature source | Round barrow | Cairn | Hut circle | Stone setting |
+|---|---|---|---|---|
+| Masked reconstruction, 16 m masks (decoder features) | 12% | 6% | 1% | 0% |
+| Masked reconstruction, 4 m masks (decoder features) | 17% | 6% | 3% | 0% |
+| Masked reconstruction, 4 m masks (**encoder** features) | 22% | 7% | 3% | 4% |
+| Global contrastive encoder (earlier run, 5 English tiles) | 26% | 18% | 2% | 4% |
+| **Dense contrastive** (same place, different view) | **27%** | 5% | 3% | 0% |
+| *Reference: hand terrain features* | 35% | 16% | 1% | 0% |
+| *Reference: barrow-trained U-Net features (needs labels)* | 61% | 32% | 2% | 6% |
+
+Data-scaling probe (dense contrastive, same steps): trained on **45 km²** (5 terrains) it reaches barrows 12%,
+cairns 2%, hut circles 1%; on **154 km²** (3.4x more) barrows 27%, cairns 5%, hut circles 3%.
+
+What this supports, and what it does not:
+
+- No label-free objective tried beats hand-built terrain features at this corpus size, and all trail the
+  supervised network's features by a wide margin. Labels (even from five tiles) carry much more signal than 154 km²
+  of unlabelled terrain does.
+- The best label-free objective **improves clearly with data** (barrows 12% -> 27% over 3.4x more terrain). Two
+  points on a noisy benchmark (about +/-5 points) are a direction, not a curve, and I cannot say where it
+  flattens or whether 65x more terrain (10,000 km²) would reach the supervised features' 61%.
+- Hut circles and stone settings stay near chance for every label-free variant, as for every method so far.
+
+Consequence for the plan: scaling is now worth testing, but in stages with a measured curve, not in one jump.
+The objective upgrade (latent prediction) is deferred until a third data point says whether dense contrastive
+plateaus; and a labelled route is back on the table as a comparison (section 9, M3b).
 
 ## 4. Hypotheses and how each is tested
 
 | # | Hypothesis | Test | Go / no-go |
 |---|---|---|---|
-| H1 | A dense masked-terrain objective gives better prompt features than the supervised network's features | Frozen prompt benchmark (section 6), same protocol as the table above | Mean own-type recall over the four types beats the U-Net-feature row, and hut circles leave chance level |
+| H1 | A label-free objective gives better prompt features than the supervised network's features | Frozen prompt benchmark (section 6), same protocol as the table above | Mean own-type recall over the four types beats the U-Net-feature row, and hut circles leave chance level |
 | H2 | More unlabelled terrain helps (data scaling) | Same encoder at 1x, 10x, 100x corpus, fixed steps per km² | Monotone gain; stop scaling where the curve flattens |
 | H3 | Multi-country data improves transfer to a held-out country | Train without country X, test on X (forest, upland, arid) | Held-out gap shrinks versus single-country training |
 | H4 | Capacity matters | 1 M, 10 M, 50 M parameter encoders at matched compute | Gain per 10x parameters justifies the Mac training time |
@@ -110,32 +138,43 @@ about 90 ms. *Next:* a training data loader that reads blocks over range request
 filter, rasterise) is the likely hotspot but was never profiled live, so profile first, write kernels only where
 a measured hotspot exceeds the accelerator's headroom.
 
-## 8. Compute plan (*estimate* from the pilot's measured throughput)
+## 8. Compute plan (*estimate* from measured throughput)
 
-Measured on the pilot: **323 crops/s** (128 m x 128 m crops, 1.0 M-parameter network, M4 Max). One
-non-overlapping crop covers 0.0164 km², so one pass over a corpus takes (km² x 61 crops) / 323 seconds:
+Measured on the 1.0 M-parameter network (M4 Max): masked reconstruction **323 crops/s**; dense contrastive
+**117-128 crops/s** (two views per crop, so about 2.7x the cost). One non-overlapping 128 m crop covers
+0.0164 km², so a pass over a corpus takes (km² x 61 crops) / throughput. For the objective that currently works
+best (dense contrastive, 120 crops/s):
 
 | Corpus | One pass | 10 passes |
 |---|---|---|
-| 154 km² (pilot) | 29 s | 5 min |
-| 10,000 km² | 31 min | 5.2 h |
-| 100,000 km² | 5.2 h | 52 h |
+| 154 km² (current) | 78 s | 13 min |
+| 1,500 km² (M3) | 13 min | 2.1 h |
+| 10,000 km² | 85 min | 14 h |
+| 100,000 km² | 14 h | 141 h |
 
-Capacity (H4) is *unmeasured*: a 10 M-parameter encoder will be slower per step by an amount I have not
-measured, so the 100,000 km² row only holds for the small network. Reading crops from a local cache needs about
-42 MB/s, trivial; the download times in section 5 dominate the first epoch, not training.
+Capacity (H4) is *unmeasured*: a larger encoder is slower per step by an amount I have not measured, so the
+larger rows only hold for the small network. Reading crops from a local cache needs tens of MB/s, trivial; the
+download times in section 5 dominate the first epoch, not training.
 
 ## 9. Milestones with gates (no calendar dates)
 
-1. **M1 pilot** (done): masked pretraining on 154 km², evaluated on the frozen benchmark. Gate: decides whether
-   the objective is worth scaling.
-2. **M2 benchmark v1**: freeze types, splits and controls; add at least one more country with typed labels.
-3. **M3 scale to ~10,000 km²** across England and the Netherlands plus any newly verified source; H2 and H3 curves.
-4. **M4 objective upgrade** (latent prediction) only if M3 plateaus below the gates.
-5. **M5 release**: weights, manifest, benchmark, `scan --prompt`, model card with failure modes.
+1. **M1 pilot** (done): masked reconstruction on 154 km². Negative.
+2. **M1b objective experiments** (done): three label-free families, and a 45 vs 154 km² scaling probe (3b).
+3. **M2 benchmark v1**: freeze types, splits and controls; add at least one more country with typed labels.
+4. **M3 staged scaling**: grow the corpus to about 1,500 km² (about 10x; roughly 4-6 GB, which needs your
+   approval per source) and retrain dense contrastive with identical settings. Third point on the scaling curve.
+   Gate: barrows at 10 prompts must clearly exceed hand features (35%) or the curve must still be rising steeply;
+   otherwise stop scaling.
+5. **M3b labelled comparison** (optional, needs a decision): pretrain the same network on *open typed heritage
+   polygons* from a much larger area (many types, not just barrows) as weak supervision, and compare on the
+   frozen benchmark against the label-free route at equal compute. The supervised features already beat every
+   label-free result, so this is the honest baseline the foundation model has to beat.
+6. **M4 objective upgrade** (latent prediction) only if M3 plateaus below the gates.
+7. **M5 release**: weights, manifest, benchmark, `scan --prompt`, model card with failure modes.
 
-Stop rule: if H1 fails at M1 and again after the objective upgrade, the right conclusion is that open lidar at
-1 m does not carry enough signal for few-shot shapes, and effort moves to better labelled data, not bigger models.
+Stop rule: if M3 plateaus below hand features while the labelled comparison clearly wins, the conclusion is that
+open lidar at 1 m carries too little label-free signal for few-shot shapes at laptop scale, and effort moves to
+weak supervision from the open typed records, not bigger label-free models.
 
 ## 10. Risks
 
@@ -152,11 +191,12 @@ Stop rule: if H1 fails at M1 and again after the objective upgrade, the right co
 
 ## 11. Decisions needed
 
-1. **Order of work.** Recommended: objective experiments on the current 154 km² first (cheap, decides whether
-   scaling is worth it), then benchmark v1, then scale. Alternative: scale first and hope; I advise against it.
-2. **Sources to verify next** (each needs your approval before any download): which countries or terrains
-   matter to you (forest, arid, jungle, upland), since held-out regions are chosen from that.
-3. **Compute you are willing to spend** on this Mac: a 10,000 km² run is about 5 hours at the small size.
-4. **Release policy.** Apache-2.0 weights and benchmark are consistent with the repository, but weights trained on
-   OpenStreetMap-derived labels or non-commercial terrain are not; the manifest decides. Also decide the policy
-   for sharing detections of unrecorded sites (default here: local only).
+1. **Approve staged scaling (M3).** About 10x the current terrain from the sources already verified (England EA,
+   Netherlands AHN); roughly 4-6 GB of downloads. Each source and size needs your explicit approval before I fetch.
+2. **Is the labelled comparison (M3b) acceptable?** It uses open typed monument records as a training signal, which is
+   the opposite of "no label hunting", but it is the honest baseline: it shows what the label-free model must beat.
+3. **Which terrains matter** (forest, arid, jungle, upland), since held-out regions are chosen from that.
+4. **Compute you will spend.** A 10,000 km² run is about 5 hours per 10 passes at the small network; unmeasured for
+   larger ones.
+5. **Release and sensitivity policy.** Weights trained on OpenStreetMap-derived labels or non-commercial terrain
+   cannot all be Apache-2.0; the manifest decides. Detections of unrecorded sites stay local by default.
