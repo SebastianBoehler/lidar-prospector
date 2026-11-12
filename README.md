@@ -282,6 +282,9 @@ Mexico) rather than publishing coordinates.
 
 ## Roadmap
 
+The plan for a pretrained terrain encoder, with a measured (negative) pilot, is in
+[docs/foundation-model.md](docs/foundation-model.md).
+
 - Weights as a release download, so the quick start needs no training step.
 - Ground-return-density map inside `scan`, so the tool knows where canopy hides the ground.
 - More sources (Canada COPC first), verified one at a time.
