@@ -4,8 +4,9 @@ from .base import Dem, Source, utm_epsg
 from .england import EnglandEA
 from .ept import UsgsEpt
 from .geotiff import GeoTiffSource
+from .scotland import ScotlandSRSP
 
-REGISTRY: list[Source] = [EnglandEA()]
+REGISTRY: list[Source] = [EnglandEA(), ScotlandSRSP()]
 
 
 def source_for(lon: float, lat: float, extra: list[Source] | None = None) -> Source:
@@ -18,4 +19,14 @@ def source_for(lon: float, lat: float, extra: list[Source] | None = None) -> Sou
     )
 
 
-__all__ = ["REGISTRY", "Dem", "EnglandEA", "GeoTiffSource", "Source", "UsgsEpt", "source_for", "utm_epsg"]
+__all__ = [
+    "REGISTRY",
+    "Dem",
+    "EnglandEA",
+    "GeoTiffSource",
+    "ScotlandSRSP",
+    "Source",
+    "UsgsEpt",
+    "source_for",
+    "utm_epsg",
+]

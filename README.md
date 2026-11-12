@@ -86,6 +86,7 @@ Every source returns the same object: a metric, north-up elevation grid plus its
 | England, Environment Agency 1 m DTM (WCS) | verified on the benchmark windows; a live multi-tile `scan --source england` has not been run yet | OGL v3 |
 | Any GeoTIFF / COG, local or HTTP, any CRS | verified | windowed reads and on-the-fly reprojection; checked against a remote global 30 m COG and a synthetic lat/lon raster |
 | Netherlands AHN 0.5 m DTM (PDOK WCS, server-side scaling to 1 m) | verified: four tiles downloaded (88 MB) and scored | CC0 1.0 |
+| Scotland SRSP DTM (public S3 tiles: 1 m in phases 1-2, 50 cm in 3-6; range-readable) | adapter built; tile index (1,518 tiles) and a real 128 m window read verified; not yet scanned or scored | OGL v3 |
 | OpenTopography UAV lidar, Quiriguá Guatemala (`--source preset:quirigua`) | verified: file downloaded (28.6 MB) and scanned | CC BY 4.0, 0.25 m DTM under canopy; terms read from the publisher's page |
 | USGS 3DEP point clouds (EPT, no login) | built from earlier-verified pieces | gridded from classified ground returns; not re-run live after the refactor; needs the survey name (`ept:PROJECT`) |
 | Canada CanElevation (COPC on AWS) | not built | COPC point clouds, Open Government Licence, listed on the AWS registry |

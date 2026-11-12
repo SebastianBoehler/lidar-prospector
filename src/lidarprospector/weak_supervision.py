@@ -23,11 +23,12 @@ from rasterio import Affine
 from rasterio.features import rasterize
 from scipy import ndimage
 
-from .embed import dihedral
+from .embed import dihedral, relief_channels
 from .features_torch import pick_device
-from .labels import BARROW
+from .labels import BARROW, monuments
 from .prompt_types import object_type
 from .unet import UNet
+from .wcs import fetch_dtm
 
 HELD = re.compile(r"hut circle|hut-circle|roundhouse|stone row|stone circle|standing stone|menhir", re.I)
 CROP = 128
@@ -70,9 +71,14 @@ def build(mode: str, root: Path = Path("data")):
         b = tuple(rec["bbox"])
         lab = root / "labels" / f"{mode}_{b[0]}_{b[1]}.npy"
         if not lab.exists():
-            mons = json.loads((root / "labels" / f"ea_{b[0]}_{b[1]}.json").read_text())
-            np.save(lab, label_maps(b, mons, mode))
-        relief.append(np.load(root / "relief" / f"ea_{b[0]}_{b[1]}.npy", mmap_mode="r"))
+            raw = root / "labels" / f"ea_{b[0]}_{b[1]}.json"
+            if not raw.exists():
+                raw.write_text(json.dumps(monuments(*b)))
+            np.save(lab, label_maps(b, json.loads(raw.read_text()), mode))
+        rel = root / "relief" / f"ea_{b[0]}_{b[1]}.npy"
+        if not rel.exists():
+            np.save(rel, relief_channels(fetch_dtm(*b)[0]).astype(np.float16))
+        relief.append(np.load(rel, mmap_mode="r"))
         labels.append(np.load(lab, mmap_mode="r"))
     return relief, labels
 
