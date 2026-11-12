@@ -36,7 +36,8 @@ class UNet(nn.Module):
         self.d1 = nn.Sequential(_block(f2 + f1, f1, 1), _block(f1, f1, 1))
         self.head = nn.Conv2d(f1, 1, 1)
 
-    def forward(self, x):
+    def trunk(self, x):
+        """Decoder output before the 1x1 head: (B, widths[0], H, W) dense features."""
         taps = []
         for i, block in enumerate(self.body):
             x = block(x)
@@ -49,5 +50,7 @@ class UNet(nn.Module):
 
         d = self.d3(torch.cat([up(f8, f4), f4], 1))
         d = self.d2(torch.cat([up(d, f2), f2], 1))
-        d = self.d1(torch.cat([up(d, f1), f1], 1))
-        return self.head(d)[:, 0]  # logits, (B, H, W)
+        return self.d1(torch.cat([up(d, f1), f1], 1))
+
+    def forward(self, x):
+        return self.head(self.trunk(x))[:, 0]  # logits, (B, H, W)
