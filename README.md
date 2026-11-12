@@ -175,7 +175,37 @@ Only linear monuments at the finest level stand out. The detector does not find 
 finds field systems less often than chance (they are low-relief), so it should not be read as a detector for
 either. Roads are not masked in this check.
 
-### Prompt-by-example search
+### Promptable detection across object types (no per-type training)
+
+A prompt is a few example locations. Every pixel gets a dense feature vector, a regularised linear probe
+separates the examples from background, and its peaks are the candidates, so changing the examples changes the
+object type with no retraining. Tested on four object types from Historic England's scheduled monuments
+(single monuments of <= 0.5 ha, 13 English tiles), with examples drawn from *other* tiles. A hit is a scheduled
+polygon that contains one of the top 100 candidates in a 9 km² tile; "random" places 100 random points.
+
+Own-type recall with 10 example prompts:
+
+| Feature source for the probe | Round barrow (146) | Cairn (91) | Hut circle (45) | Stone setting (17) |
+|---|---|---|---|---|
+| Hand terrain features | 35% | 16% | 1% | 0% |
+| **Barrow-trained U-Net's dense features** | **61%** | **32%** | 2% | 6% |
+| Self-supervised encoder features | 26% | 18% | 2% | 4% |
+| Template matching on raw terrain (no learning) | 47% | 10% | 0% | 0% |
+| Random placement | 2% | 1% | 1-2% | 3% |
+| *Supervised, trained for the type (Dartmoor)* | n/a | *37%* | *16%* | n/a |
+
+What this shows. Prompting works for dome-shaped mounds: 3 examples give 57% on barrows, and for cairns 10
+examples (32%) come within reach of a model trained on labelled cairns (37%). It does **not** work for shapes
+the base features never learned: hut circles and stone settings are at chance for every method, and even the
+trained model finds only 16% of hut circles (they are small, subtle, and the polygons are protected areas, not
+hut positions; a contact sheet showed many labels are offset or invisible, which is why a candidate has to fall
+inside the polygon and not within 10 m of a centre). The prompts also steer weakly by *type*: a cairn or
+hut-circle prompt still returns barrows (63% and 33% recall of barrows), because the probe mostly learns "mound".
+Small enclosures could not be scored (2 single examples). The click-to-find viewer uses the U-Net probe:
+with three clicked barrows on the Stonehenge tile, 12 of the 30 results fall on other known barrows (the previous
+embedding-grid search got 4 of 30), and a query takes about 90 ms.
+
+### Earlier prompt-by-example search (8 m embedding grid, superseded by the above)
 
 A 2.3 MB encoder trained without labels embeds every 64 m patch; a linear probe on the embeddings turns
 a few clicked examples into a search. Recall at K = 200 (3 tiles, 114 barrows, simulated user, 30 trials):
@@ -188,7 +218,7 @@ a few clicked examples into a search. Recall at K = 200 (3 tiles, 114 barrows, s
 | all ~114 | 49% | 6% |
 
 Matching the mean of the examples is worse (25% with 5), and accept/reject feedback adds only 1-2 points.
-The click-to-find viewer is `python -m lidarprospector.serve --bbox ...`.
+The click-to-find viewer is `python -m lidarprospector.serve --bbox ...` (it needs `output/unet.pt` from `train_unet`).
 
 ### Rule-based detectors
 
@@ -245,6 +275,8 @@ Mexico) rather than publishing coordinates.
 - Linear detections still include hedge banks, tracks and valley edges. `--mask-roads` removes the parts
   of lines that run along OpenStreetMap roads (unit-tested with synthetic roads; the live Overpass request
   in this form has not been run).
+- Prompting works for dome-shaped mounds only; hut circles, stone settings and other shapes the base features
+  never learned are at chance (see above), and prompts steer weakly by type.
 - Enclosures, hillforts and field systems are not detected (measured: at chance or below, see above). The pit
   finder works at 1 m only.
 
