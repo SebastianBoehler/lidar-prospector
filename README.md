@@ -190,8 +190,9 @@ Own-type recall with 10 example prompts:
 |---|---|---|---|---|
 | Hand terrain features | 35% | 16% | 1% | 0% |
 | Barrow-trained U-Net's dense features (trained on the 5 Wessex tiles: the barrow figure is **partly in-sample**, the cairn figure is on tiles it never saw) | 61%* | 32% | 2% | 6% |
-| Same network trained with labels on 103 *other* tiles (typed, 49 barrows and cairns; clean) | 18% | 10% | 1% | 0% |
-| Same, trained on monuments of *other* types only (no barrows, cairns, hut circles) | 20% | 11% | 1% | 0% |
+| Same network trained with labels on 103 *other* tiles (about 50 labelled barrows and cairns; clean) | 41% | 27% | 1% | n/a |
+| Same, trained on 133 *other* tiles (about 520 labelled barrows, cairns, hut circles, stone settings; clean) | **54%** | **42%** | **10%** | n/a |
+| Same, trained on monuments of *other* types only (no barrows, cairns, hut circles; 133 tiles) | 10% | 4% | 1% | 0% |
 | Self-supervised encoder features | 26% | 18% | 2% | 4% |
 | Template matching on raw terrain (no learning) | 47% | 10% | 0% | 0% |
 | Random placement | 2% | 1% | 1-2% | 3% |
@@ -288,10 +289,10 @@ Mexico) rather than publishing coordinates.
 The plan for a pretrained terrain encoder is in [docs/foundation-model.md](docs/foundation-model.md). So far no
 label-free pretraining objective (masked reconstruction, contrastive, dense contrastive) beats hand-built terrain
 features. The best one (dense contrastive) went 12% -> 27% -> 20% on barrow prompts at 45, 154 and 1,477 km² of
-unlabelled terrain (fixed training steps), so more label-free data alone has not closed the gap to hand features (35%)
-or to a barrow-trained network. The labelled comparison on benchmark-disjoint tiles (49 labelled barrows and cairns)
-reached only 18% and 10%, so the earlier 61% barrow figure was in-sample and the cause is label quantity, not the
-objective: the open question is how many labelled tiles it takes.
+unlabelled terrain (fixed training steps), so more label-free data alone has not closed the gap to hand features (35%).
+What does work is labels: the same network trained on benchmark-disjoint tiles reaches 41% / 27% (barrows / cairns) with
+about 50 labelled objects and 54% / 42% (hut circles 10%) with about 520, and its own detector scores 58% / 47% / 18%.
+It transfers poorly to types it was not trained on (monuments of other types: 10% / 4%).
 
 - Weights as a release download, so the quick start needs no training step.
 - Ground-return-density map inside `scan`, so the tool knows where canopy hides the ground.

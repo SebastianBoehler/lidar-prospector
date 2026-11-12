@@ -34,10 +34,14 @@ HELD = re.compile(r"hut circle|hut-circle|roundhouse|stone row|stone circle|stan
 CROP = 128
 
 
+def is_single_typed(m: dict) -> bool:
+    """One monument of a benchmark type: named as such and small enough that the polygon is the object."""
+    return object_type(m["name"]) not in (None, "small enclosure") and (m["area_ha"] or 9) <= 0.5
+
+
 def is_benchmark_type(m: dict) -> bool:
     name = m["name"] or ""
-    typed = object_type(name) not in (None, "small enclosure") and (m["area_ha"] or 9) <= 0.5
-    return typed or bool(BARROW.search(name) or HELD.search(name))
+    return is_single_typed(m) or bool(BARROW.search(name) or HELD.search(name))
 
 
 def label_maps(bbox, mons, mode: str, shape=(3000, 3000)) -> np.ndarray:
@@ -52,7 +56,8 @@ def label_maps(bbox, mons, mode: str, shape=(3000, 3000)) -> np.ndarray:
 
     bench = [m for m in mons if is_benchmark_type(m)]
     if mode == "typed":
-        pos_ms = [m for m in bench if object_type(m["name"]) not in (None, "small enclosure")]
+        # single monuments only: a scheduled barrow *cemetery* is hectares of mounds and the ground between
+        pos_ms = [m for m in bench if is_single_typed(m)]
         pos = ndimage.binary_dilation(burn(pos_ms), iterations=2)
         ign = ndimage.binary_dilation(burn([m for m in mons if m not in pos_ms]), iterations=3) & ~pos
     else:
@@ -61,12 +66,14 @@ def label_maps(bbox, mons, mode: str, shape=(3000, 3000)) -> np.ndarray:
     return np.stack([pos, ign]).astype(np.uint8)
 
 
-def build(mode: str, root: Path = Path("data")):
+def build(mode: str, root: Path = Path("data"), include_dense: bool = True):
     """(relief memmaps, label memmaps) for every labelled-corpus English tile; label caches are reused."""
     manifest = json.loads((root / "corpus_manifest.json").read_text())
     relief, labels = [], []
     for rec in manifest:
         if rec["source"] != "ea" or rec["valid"] < 0.5:
+            continue
+        if not include_dense and rec["region"] == "label-dense":
             continue
         b = tuple(rec["bbox"])
         lab = root / "labels" / f"{mode}_{b[0]}_{b[1]}.npy"
@@ -130,8 +137,11 @@ def main() -> None:
     ap.add_argument("mode", choices=["typed", "other"])
     ap.add_argument("--steps", type=int, default=1500)
     ap.add_argument("--out", type=Path)
+    ap.add_argument(
+        "--no-dense", action="store_true", help="leave out the label-dense tiles (103-tile corpus)"
+    )
     a = ap.parse_args()
-    relief, labels = build(a.mode)
+    relief, labels = build(a.mode, include_dense=not a.no_dense)
     n_pos = sum(int(np.asarray(m[0, ::4, ::4]).sum()) for m in labels)
     print(f"{len(relief)} tiles; {n_pos} positive pixels (1/16 subsampled) in mode '{a.mode}'", flush=True)
     model = train(relief, labels, a.steps, pick_device())

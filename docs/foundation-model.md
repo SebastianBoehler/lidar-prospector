@@ -65,8 +65,8 @@ Same corpus (154 km²), same 3,000 steps, same frozen prompt benchmark, 10 examp
 | **Dense contrastive** (same place, different view) | **27%** | 5% | 3% | 0% |
 | *Reference: hand terrain features* | 35% | 16% | 1% | 0% |
 | *Reference: barrow-trained U-Net features (needs labels; trained on the 5 Wessex benchmark tiles, so **61% is partly in-sample**)* | 61%* | 32% | 2% | 6% |
-| *Labelled, clean: same U-Net trained on 103 corpus tiles disjoint from the benchmark (49 barrows+cairns)* | 18% | 10% | 1% | 0% |
-| *Labelled, other types only (no barrows, cairns, hut circles, stone settings)* | 20% | 11% | 1% | 0% |
+| *Labelled, clean: same U-Net trained on 133 tiles disjoint from the benchmark (about 520 objects; see 3c)* | 54% | 42% | 10% | n/a |
+| *Labelled, other types only (no barrows, cairns, hut circles, stone settings)* | 10% | 4% | 1% | 0% |
 
 Data-scaling probe (dense contrastive, same steps): trained on **45 km²** (5 terrains) it reaches barrows 12%,
 cairns 2%, hut circles 1%; on **154 km²** (3.4x more) barrows 27%, cairns 5%, hut circles 3%.
@@ -97,22 +97,34 @@ see 3c.
 
 ### 3c. Labelled comparison on benchmark-disjoint tiles (measured, 12 Nov)
 
-The same U-Net, 1,500 steps, trained with Historic England polygons on the 103 English corpus tiles (none overlaps
-a benchmark tile), then frozen and put through the same prompt benchmark. The corpus tiles are random cells, so
-labels are sparse: 35 round barrows, 14 cairns, 3 hut circles, 1 stone setting.
+The same U-Net, 1,500 steps, trained with Historic England polygons on English corpus tiles that do not overlap any
+benchmark tile, then frozen and put through the same prompt benchmark (10 prompts). Positives are single monuments of
+the four types (barrows, cairns, hut circles, stone settings); all other monuments are ignored.
 
-- Typed (positives = barrows, cairns, hut circles, stone settings; other monuments ignored): barrows 18%, cairns 10%.
-- Other types only (positives = enclosures, field systems, dykes and the like; the benchmark's four types ignored):
-  barrows 20%, cairns 11%, hut circles 1%.
+| Training tiles (labelled objects) | Own detector: barrows / cairns / hut circles / stone settings | Prompt benchmark: barrows / cairns / hut circles |
+|---|---|---|
+| 103 random corpus cells (about 50) | 46% / 30% / 2% / 6% | 41% / 27% / 1% |
+| + 30 label-dense cells (about 520) | 58% / 47% / 18% / 29% | **54% / 42% / 10%** |
+| Other monument types only, benchmark types ignored (133 tiles) | about 3% | 10% / 4% / 1% |
+| Reference: hand terrain features | n/a | 35% / 16% / 1% |
 
-Two corrections follow. (1) The 61% barrow figure used throughout this document came from a network trained on the
-5 Wessex tiles, which hold about 119 of the benchmark's 146 barrows, so it is **in-sample for most barrows and not a
-valid supervised ceiling**. Its 32% on cairns is on moorland tiles it never saw and stands. (2) With about 50
-labelled objects no learned feature source tried so far (label-free at 45 to 1,477 km², or labelled on disjoint tiles)
-beats the 13 hand-built terrain features (35% / 16%). The labelled network that did better saw 119 barrows in one
-dense landscape, so label quantity and density matter more than the pretraining objective at this scale. Training
-on benchmark-disjoint terrain with several hundred labelled objects would need new label-dense tiles (a new
-download, not yet approved).
+What this supports:
+- **Labels beat every label-free objective**, and they scale: 10x more labelled objects took prompt recall on barrows
+  from 41% to 54%, cairns from 27% to 42%, hut circles from 1% to 10%. This answers the open question from 3b: the
+  gap to hand features was label quantity, not the network.
+- **The earlier 61% barrow figure was in-sample** (trained on 5 Wessex benchmark tiles). The clean figure is 54%.
+- **Monuments in general do not transfer**: a network taught only the *other* monument types (enclosures, field
+  systems, dykes) does not help prompts for barrows and cairns (10% / 4%). Prompting is not type-agnostic knowledge;
+  the types themselves need labels.
+- **Caveats.** The 30 label-dense cells include moorland near the benchmark's Dartmoor, Exmoor-like and Peak tiles
+  (disjoint cells, but similar ground and next to some of them), so part of the gain may be landscape matching.
+  Both networks saw hut circles and stone settings as positives, so those columns are in-distribution supervised
+  detection, not zero-shot prompting. One seed each; benchmark noise is about +/-5 points.
+
+A bug found on the way: the first labelled runs counted whole scheduled barrow-cemetery polygons (hectares) as barrows,
+which made the networks mark protected areas instead of mounds (direct detection 1-3%, prompt recall 9% / 4%). Those
+numbers were published briefly and are withdrawn; the table above uses the fixed labels and a regression test now
+guards the case.
 
 ## 4. Hypotheses and how each is tested
 

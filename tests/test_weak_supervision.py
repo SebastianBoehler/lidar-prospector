@@ -40,3 +40,11 @@ def test_other_mode_is_the_complement_in_what_it_calls_positive():
     pos, ign = lab[0] > 0, lab[1] > 0
     assert pos[300, 300] and not pos[100, 100]
     assert ign[100, 100]  # the benchmark type is ignored, not taught as background
+
+
+def test_a_barrow_cemetery_is_not_a_positive():
+    big = mon("Round barrow cemetery", 1200, 2200, half=60, area=1.4)
+    lab = label_maps(BBOX, [big, mon("Round barrow", 1100, 2300)], "typed", shape=(400, 400))
+    pos, ign = lab[0] > 0, lab[1] > 0
+    assert pos[100, 100] and not pos[200, 200]  # the single barrow, not the cemetery polygon
+    assert ign[200, 200]
