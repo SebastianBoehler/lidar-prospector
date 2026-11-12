@@ -62,42 +62,54 @@ def unet_extractor(weights: str = "output/unet.pt") -> Extractor:
     )
 
 
-def ssl_extractor(weights: str = "output/encoder.pt", dim: int = 32) -> Extractor:
-    device = pick_device()
-    enc = Encoder().to(device)
-    enc.load_state_dict(torch.load(weights, map_location=device))
-    enc.eval()
-
-    def taps(x):
-        feats = []
-        for i, block in enumerate(enc.body):
-            x = block(x)
-            if i in (0, 2, 4):
-                feats.append(x)
-        full = feats[0].shape[-2:]
-        return torch.cat(
-            [F.interpolate(f, size=full, mode="bilinear", align_corners=False) for f in feats], 1
-        )
-
+def pca_extractor(name: str, raw_fn, raw_dim: int, device: str, dim: int = 32) -> Extractor:
+    """Dense features from `raw_fn` (B, C, h, w) -> (B, raw_dim, h, w), projected to `dim` by a PCA fitted
+    once on a crop of the first terrain seen, applied on the device inside each block."""
     state: dict = {}
 
-    def projected(x):  # PCA projection applied on the device, inside each block
-        f = taps(x)
-        return torch.einsum("bchw,cd->bdhw", f - state["mean"], state["proj"])
+    def projected(x):
+        return torch.einsum("bchw,cd->bdhw", raw_fn(x) - state["mean"], state["proj"])
 
     def dense(dtm):
         chan = relief_channels(dtm)
-        if "proj" not in state:  # PCA fitted once, on a crop of the first terrain seen, then fixed
+        if "proj" not in state:
             crop = np.ascontiguousarray(chan[:, :1024, :1024])
-            raw = blockwise(taps, crop, 224, device)
-            sample = raw.reshape(-1, 224)[:: max(1, raw.shape[0] * raw.shape[1] // 40000)]
+            raw = blockwise(raw_fn, crop, raw_dim, device)
+            sample = raw.reshape(-1, raw_dim)[:: max(1, raw.shape[0] * raw.shape[1] // 40000)]
             mean = sample.mean(0)
             _, _, vt = np.linalg.svd(sample - mean, full_matrices=False)
             state["mean"] = torch.from_numpy(mean).to(device)[None, :, None, None]
             state["proj"] = torch.from_numpy(vt[:dim].T.copy()).to(device)
         return blockwise(projected, chan, dim, device)
 
-    return Extractor("SSL encoder features (PCA 32)", dense, dim)
+    return Extractor(name, dense, dim)
+
+
+def multiscale_taps(body, taps=(0, 2, 4), extra_zero_channels: int = 0):
+    """raw_fn for `pca_extractor`: the body's feature maps at several depths, upsampled and concatenated."""
+
+    def fn(x):
+        if extra_zero_channels:
+            x = torch.cat([x, torch.zeros_like(x[:, :1]).repeat(1, extra_zero_channels, 1, 1)], 1)
+        feats = []
+        for i, block in enumerate(body):
+            x = block(x)
+            if i in taps:
+                feats.append(x)
+        full = feats[0].shape[-2:]
+        return torch.cat(
+            [F.interpolate(f, size=full, mode="bilinear", align_corners=False) for f in feats], 1
+        )
+
+    return fn
+
+
+def ssl_extractor(weights: str = "output/encoder.pt", dim: int = 32) -> Extractor:
+    device = pick_device()
+    enc = Encoder().to(device)
+    enc.load_state_dict(torch.load(weights, map_location=device))
+    enc.eval()
+    return pca_extractor("SSL encoder features (PCA 32)", multiscale_taps(enc.body), 224, device, dim)
 
 
 def fit_probe(pos: np.ndarray, neg: np.ndarray, c: float = 0.05) -> tuple[np.ndarray, float]:

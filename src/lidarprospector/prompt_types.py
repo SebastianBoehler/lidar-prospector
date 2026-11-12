@@ -22,7 +22,7 @@ from skimage.feature import peak_local_max
 from .crossval import landscape_tiles, tiles
 from .features_torch import pick_device
 from .labels import monuments
-from .mae import mae_extractor
+from .mae import mae_encoder_extractor, mae_extractor
 from .promptable import (
     Extractor,
     fit_probe,
@@ -232,7 +232,10 @@ def report(name, found, total, rand):
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--mae-weights", default="output/mae.pt")
-    ap.add_argument("--only", choices=["hand", "unet", "ssl", "mae", "template"], help="run a single method")
+    ap.add_argument("--unet-weights", default="output/unet.pt", help="weights for the U-Net feature source")
+    ap.add_argument(
+        "--only", choices=["hand", "unet", "ssl", "mae", "maeenc", "template"], help="run a single method"
+    )
     a = ap.parse_args()
     boxes = list(tiles()) + [b for _, b in landscape_tiles()]
     objects = [typed_objects(b) for b in boxes]
@@ -243,9 +246,10 @@ def main() -> None:
     device = pick_device()
     makers = {
         "hand": hand_extractor,
-        "unet": unet_extractor,
+        "unet": lambda: unet_extractor(a.unet_weights),
         "ssl": ssl_extractor,
         "mae": lambda: mae_extractor(a.mae_weights),
+        "maeenc": lambda: mae_encoder_extractor(a.mae_weights),
     }
     for name in [a.only] if a.only else ["hand", "unet", "ssl", "template"]:
         rng = np.random.default_rng(0)

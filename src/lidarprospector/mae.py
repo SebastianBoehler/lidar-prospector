@@ -57,17 +57,23 @@ def _origins(chans, rng, crop):
     return draw
 
 
+def corpus_tensors(dtms, rng, crop, device):
+    """(T, 2, Hmax, Wmax) relief stack on the device (zero-padded) and a sampler of crop origins that stay
+    inside each tile's real extent, weighted toward structured terrain."""
+    chans = [relief_channels(d) for d in dtms]
+    draw = _origins(chans, rng, crop)
+    hmax, wmax = max(c.shape[1] for c in chans), max(c.shape[2] for c in chans)
+    padded = [np.pad(c, ((0, 0), (0, hmax - c.shape[1]), (0, wmax - c.shape[2]))) for c in chans]
+    return torch.from_numpy(np.stack(padded)).to(device), draw
+
+
 def pretrain(
     dtms, steps=3000, batch=64, crop=128, ratio=0.5, lr=2e-3, device="mps", seed=0, log=print, block=BLOCK
 ):
     """Masked reconstruction on every terrain given; no labels. Returns (net, samples_per_second)."""
     rng = np.random.default_rng(seed)
     torch.manual_seed(seed)
-    chans = [relief_channels(d) for d in dtms]
-    draw = _origins(chans, rng, crop)  # origins stay inside each tile's real extent
-    hmax, wmax = max(c.shape[1] for c in chans), max(c.shape[2] for c in chans)
-    padded = [np.pad(c, ((0, 0), (0, hmax - c.shape[1]), (0, wmax - c.shape[2]))) for c in chans]
-    tiles = torch.from_numpy(np.stack(padded)).to(device)
+    tiles, draw = corpus_tensors(dtms, rng, crop, device)
     net = make_net().to(device)
     opt = torch.optim.AdamW(net.parameters(), lr=lr, weight_decay=1e-4)
     sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=lr, total_steps=steps, pct_start=0.1)
@@ -102,3 +108,16 @@ def mae_extractor(weights: str = "output/mae.pt", device: str | None = None) -> 
     return Extractor(
         "masked-terrain features", lambda dtm: blockwise(fn, relief_channels(dtm), 32, device), 32
     )
+
+
+def mae_encoder_extractor(weights: str = "output/mae.pt", device: str | None = None) -> Extractor:
+    """The masked network's *encoder* feature maps (not the reconstruction decoder), PCA-projected."""
+    from .features_torch import pick_device
+    from .promptable import multiscale_taps, pca_extractor
+
+    device = device or pick_device()
+    net = make_net().to(device)
+    net.load_state_dict(torch.load(weights, map_location=device))
+    net.eval()
+    raw = multiscale_taps(net.body, taps=(0, 2, 4, 5), extra_zero_channels=1)
+    return pca_extractor("masked-terrain ENCODER features (PCA 32)", raw, 32 + 64 + 128 + 192, device)
