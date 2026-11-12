@@ -22,6 +22,7 @@ from skimage.feature import peak_local_max
 from .crossval import landscape_tiles, tiles
 from .features_torch import pick_device
 from .labels import monuments
+from .mae import mae_extractor
 from .promptable import (
     Extractor,
     fit_probe,
@@ -230,7 +231,8 @@ def report(name, found, total, rand):
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--only", choices=["hand", "unet", "ssl", "template"], help="run a single method")
+    ap.add_argument("--mae-weights", default="output/mae.pt")
+    ap.add_argument("--only", choices=["hand", "unet", "ssl", "mae", "template"], help="run a single method")
     a = ap.parse_args()
     boxes = list(tiles()) + [b for _, b in landscape_tiles()]
     objects = [typed_objects(b) for b in boxes]
@@ -239,7 +241,12 @@ def main() -> None:
     counts = {t: sum(len(lab.get(t, [])) for lab in labels) for t in TYPES}
     print("single monuments per type across", len(boxes), "tiles:", counts)
     device = pick_device()
-    makers = {"hand": hand_extractor, "unet": unet_extractor, "ssl": ssl_extractor}
+    makers = {
+        "hand": hand_extractor,
+        "unet": unet_extractor,
+        "ssl": ssl_extractor,
+        "mae": lambda: mae_extractor(a.mae_weights),
+    }
     for name in [a.only] if a.only else ["hand", "unet", "ssl", "template"]:
         rng = np.random.default_rng(0)
         if name == "template":
