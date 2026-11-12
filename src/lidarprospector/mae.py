@@ -57,6 +57,22 @@ def _origins(chans, rng, crop):
     return draw
 
 
+def batch_sampler(source, rng, crop, device):
+    """`sample(n) -> (n, 2, crop, crop)` on the device from a list of terrains (held on the device) or a
+    CropStore (read from disk). Both give the same kind of crop."""
+    from .crop_store import CropStore
+
+    if isinstance(source, CropStore):
+        return lambda n: torch.from_numpy(source.sample(n, crop, rng)).to(device)
+    tiles, draw = corpus_tensors(source, rng, crop, device)
+
+    def sample(n):
+        o = torch.from_numpy(draw(n)).to(device)
+        return gather(tiles, o[:, 0], o[:, 1], o[:, 2], crop)
+
+    return sample
+
+
 def corpus_tensors(dtms, rng, crop, device):
     """(T, 2, Hmax, Wmax) relief stack on the device (zero-padded) and a sampler of crop origins that stay
     inside each tile's real extent, weighted toward structured terrain."""
@@ -73,14 +89,13 @@ def pretrain(
     """Masked reconstruction on every terrain given; no labels. Returns (net, samples_per_second)."""
     rng = np.random.default_rng(seed)
     torch.manual_seed(seed)
-    tiles, draw = corpus_tensors(dtms, rng, crop, device)
+    sample = batch_sampler(dtms, rng, crop, device)
     net = make_net().to(device)
     opt = torch.optim.AdamW(net.parameters(), lr=lr, weight_decay=1e-4)
     sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=lr, total_steps=steps, pct_start=0.1)
     t0 = time.time()
     for step in range(1, steps + 1):
-        o = torch.from_numpy(draw(batch)).to(device)
-        x = dihedral(gather(tiles, o[:, 0], o[:, 1], o[:, 2], crop))
+        x = dihedral(sample(batch))
         x = x * torch.empty(batch, 1, 1, 1, device=device).uniform_(0.8, 1.25)
         m = block_mask(batch, crop, ratio, device, block)
         recon = net.head(net.trunk(torch.cat([x * (1 - m), m], 1)))

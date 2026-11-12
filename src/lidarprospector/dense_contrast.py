@@ -14,8 +14,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-from .embed import gather
-from .mae import corpus_tensors
+from .mae import batch_sampler
 from .unet import UNet
 
 MARGIN, STRIDE = 16, 8  # anchors on a coarse grid inside the crop, so negatives are never near-duplicates
@@ -72,7 +71,7 @@ def anchor_loss(f1, f2, proj, per_crop: int, temp: float = 0.1) -> torch.Tensor:
 def pretrain(dtms, steps=3000, batch=32, crop=128, per_crop=64, lr=2e-3, device="mps", seed=0, log=print):
     rng = np.random.default_rng(seed)
     torch.manual_seed(seed)
-    tiles, draw = corpus_tensors(dtms, rng, crop, device)
+    sample = batch_sampler(dtms, rng, crop, device)
     net = UNet().to(device)
     proj = nn.Sequential(nn.Conv2d(32, 64, 1), nn.ReLU(inplace=True), nn.Conv2d(64, 64, 1)).to(device)
     params = [*net.parameters(), *proj.parameters()]
@@ -80,8 +79,7 @@ def pretrain(dtms, steps=3000, batch=32, crop=128, per_crop=64, lr=2e-3, device=
     sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=lr, total_steps=steps, pct_start=0.1)
     t0 = time.time()
     for step in range(1, steps + 1):
-        o = torch.from_numpy(draw(batch)).to(device)
-        x = gather(tiles, o[:, 0], o[:, 1], o[:, 2], crop)
+        x = sample(batch)
         g1, g2 = (torch.randint(0, 8, (batch,), device=device) for _ in range(2))
         f1 = invert_g(net.trunk(view(x, g1)), g1)  # both views back in the crop's own frame
         f2 = invert_g(net.trunk(view(x, g2)), g2)

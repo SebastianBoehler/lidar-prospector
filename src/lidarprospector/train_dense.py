@@ -15,9 +15,16 @@ def main() -> None:
     ap.add_argument("--steps", type=int, default=3000)
     ap.add_argument("--out", type=Path, default=Path("output/dense.pt"))
     ap.add_argument("--every", type=int, default=1, help="use every n-th terrain (a data-scaling probe)")
+    ap.add_argument("--big", action="store_true", help="train from the on-disk corpus (data/relief)")
     a = ap.parse_args()
-    dtms = corpus()[:: a.every]
-    print(f"{len(dtms)} terrains, {sum(d.size for d in dtms) / 1e6:.0f} km2, no labels", flush=True)
+    if a.big:
+        from .corpus import build_store
+
+        dtms = build_store()
+        print(f"{len(dtms)} terrains on disk, no labels", flush=True)
+    else:
+        dtms = corpus()[:: a.every]
+        print(f"{len(dtms)} terrains, {sum(d.size for d in dtms) / 1e6:.0f} km2, no labels", flush=True)
     net, sps = pretrain(dtms, steps=a.steps, device=pick_device())
     a.out.parent.mkdir(exist_ok=True)
     torch.save(net.state_dict(), a.out)
