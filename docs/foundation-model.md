@@ -69,6 +69,11 @@ Same corpus (154 km²), same 3,000 steps, same frozen prompt benchmark, 10 examp
 Data-scaling probe (dense contrastive, same steps): trained on **45 km²** (5 terrains) it reaches barrows 12%,
 cairns 2%, hut circles 1%; on **154 km²** (3.4x more) barrows 27%, cairns 5%, hut circles 3%.
 
+Third point (M3, run 12 Nov): **1,477 km²** (161 terrains: 105 new English and 42 new Dutch tiles, 4.8 GB, plus the
+earlier 18), identical 3,000 steps and benchmark. Own-type recall at 10 prompts: barrows **20%** (k=1 19%, k=3 26%),
+cairns 8%, hut circles 2%, stone settings 0%. So the curve is 12% -> 27% -> 20% for barrows over 45 -> 154 -> 1,477
+km²: **it did not keep rising; the largest corpus is below the 154 km² run and below hand features (35%).**
+
 What this supports, and what it does not:
 
 - No label-free objective tried beats hand-built terrain features at this corpus size, and all trail the
@@ -79,9 +84,14 @@ What this supports, and what it does not:
   flattens or whether 65x more terrain (10,000 km²) would reach the supervised features' 61%.
 - Hut circles and stone settings stay near chance for every label-free variant, as for every method so far.
 
-Consequence for the plan: scaling is now worth testing, but in stages with a measured curve, not in one jump.
-The objective upgrade (latent prediction) is deferred until a third data point says whether dense contrastive
-plateaus; and a labelled route is back on the table as a comparison (section 9, M3b).
+Consequence for the plan: the M3 gate failed (barrows 20% vs hand features 35%, and the curve fell rather than
+rose), so by the stop rule scaling this label-free objective at fixed compute stops here. Caveats that keep this from
+being a final verdict on label-free pretraining: (1) steps were held fixed, so the 1,477 km² run saw each place about
+once while the 154 km² run saw each about ten times; a longer run is untested; (2) the benchmark noise is about
++/-5 points, so 27% vs 20% is weak evidence of a decline, but 20% vs 35% is not noise; (3) the objective (same
+place, different view) may simply carry little shape information at 1 m. What the data does support: more unlabelled
+terrain alone is not a route to the supervised features' 61% at this budget. The labelled comparison (M3b) is now the
+more informative next experiment.
 
 ## 4. Hypotheses and how each is tested
 
@@ -164,7 +174,7 @@ download times in section 5 dominate the first epoch, not training.
 4. **M3 staged scaling**: grow the corpus to about 1,500 km² (about 10x; roughly 4-6 GB, which needs your
    approval per source) and retrain dense contrastive with identical settings. Third point on the scaling curve.
    Gate: barrows at 10 prompts must clearly exceed hand features (35%) or the curve must still be rising steeply;
-   otherwise stop scaling.
+   otherwise stop scaling. **Done, gate failed** (20% at 1,477 km², see 3b).
 5. **M3b labelled comparison** (optional, needs a decision): pretrain the same network on *open typed heritage
    polygons* from a much larger area (many types, not just barrows) as weak supervision, and compare on the
    frozen benchmark against the label-free route at equal compute. The supervised features already beat every
@@ -191,7 +201,7 @@ weak supervision from the open typed records, not bigger label-free models.
 
 ## 11. Decisions needed
 
-1. **Approve staged scaling (M3).** About 10x the current terrain from the sources already verified (England EA,
+1. **Staged scaling (M3): done, approved and run.** About 10x the current terrain from the sources already verified (England EA,
    Netherlands AHN); roughly 4-6 GB of downloads. Each source and size needs your explicit approval before I fetch.
 2. **Is the labelled comparison (M3b) acceptable?** It uses open typed monument records as a training signal, which is
    the opposite of "no label hunting", but it is the honest baseline: it shows what the label-free model must beat.

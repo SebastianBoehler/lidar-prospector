@@ -284,7 +284,9 @@ Mexico) rather than publishing coordinates.
 
 The plan for a pretrained terrain encoder is in [docs/foundation-model.md](docs/foundation-model.md). So far no
 label-free pretraining objective (masked reconstruction, contrastive, dense contrastive) beats hand-built terrain
-features at 154 km², but the best one improves clearly with data (barrow prompts 12% at 45 km², 27% at 154 km²).
+features. The best one (dense contrastive) went 12% -> 27% -> 20% on barrow prompts at 45, 154 and 1,477 km² of
+unlabelled terrain (fixed training steps), so more label-free data alone has not closed the gap to hand features (35%)
+or to a barrow-trained network (61%). A labelled comparison is the next experiment.
 
 - Weights as a release download, so the quick start needs no training step.
 - Ground-return-density map inside `scan`, so the tool knows where canopy hides the ground.
