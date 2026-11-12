@@ -4,6 +4,8 @@ import json
 import re
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 URL = (
     "https://services-eu1.arcgis.com/ZOdPfBS3aqqDYPUQ/arcgis/rest/services/"
@@ -32,9 +34,16 @@ def classify(name: str | None, area_ha: float | None) -> str:
     return "other"
 
 
+def _session() -> requests.Session:
+    s = requests.Session()
+    retry = Retry(total=5, backoff_factor=2, status_forcelist=(429, 500, 502, 503, 504))
+    s.mount("https://", HTTPAdapter(max_retries=retry))
+    return s
+
+
 def monuments(xmin, ymin, xmax, ymax):
     """All scheduled monuments intersecting the window, with a coarse class from the name."""
-    r = requests.get(
+    r = _session().get(
         URL,
         params={
             "where": "1=1",
