@@ -16,10 +16,9 @@ import numpy as np
 import torch
 from scipy import ndimage
 
-from .embed import Encoder, embed_grid, relief_channels
 from .labels import monuments
 from .learn import rasters
-from .retrieve import Index
+from .promptable import PromptSearch, unet_extractor
 from .terrain import hillshade
 from .wcs import fetch_dtm
 
@@ -30,29 +29,22 @@ STATIC = Path(__file__).parent / "static"
 
 
 class Tile:
-    """A terrain window as an image plus patch embeddings. `known` are optional (row, col) positions of
-    known structures to overlay; terrain without labels simply has none."""
+    """A terrain window as an image plus dense features. `known` are optional (row, col) positions of known
+    structures to overlay; terrain without labels simply has none. Searching is prompt-driven: a probe on the
+    barrow-trained network's dense features is fitted from the clicked examples, at full pixel resolution."""
 
-    def __init__(self, dtm, known, encoder_path, device):
+    def __init__(self, dtm, known, weights, device):
         self.shape = dtm.shape
         buf = io.BytesIO()
         # fixed 0-1 scale: automatic scaling returns NaN (all-transparent image) when the terrain has nodata
         plt.imsave(buf, hillshade(dtm), cmap="gray", vmin=0.0, vmax=1.0, format="png")
         self.png = buf.getvalue()
-        model = Encoder().to(device)
-        model.load_state_dict(torch.load(encoder_path, map_location=device))
-        self.index = Index(embed_grid(model, relief_channels(dtm), device=device))
+        self.search_engine = PromptSearch(unet_extractor(weights), dtm, device)
         self.known = known
-        self.rng = np.random.default_rng(0)
 
     def search(self, pos, neg, k):
-        idx = self.index
-        pos_c = [idx.cell_of(r, c) for r, c in pos]
-        neg_c = [idx.cell_of(r, c) for r, c in neg]
-        scores = idx.probe_scores(idx.flat[pos_c], idx.flat[neg_c] if neg_c else None, self.rng)
-        hide = set(pos_c + neg_c)
-        top = idx.top(scores, k, exclude=hide)
-        return [{"row": r, "col": c} for r, c in (idx.pixel_of(t) for t in top)]
+        found = self.search_engine.search([tuple(p) for p in pos], [tuple(n) for n in neg], k)
+        return [{"row": r, "col": c} for r, c in found]
 
 
 def handler(tile: Tile):
@@ -90,12 +82,12 @@ def handler(tile: Tile):
     return H
 
 
-def england_tile(bbox, encoder_path, device) -> Tile:
+def england_tile(bbox, weights, device) -> Tile:
     dtm, x0, y1 = fetch_dtm(*bbox)
     tight, ids, *_ = rasters(dtm, x0, y1, monuments(*bbox))
     n = len(tight)
     known = np.array(ndimage.center_of_mass(ids > 0, ids, range(1, n + 1))).tolist() if n else []
-    return Tile(dtm, known, encoder_path, device)
+    return Tile(dtm, known, weights, device)
 
 
 def main() -> None:
@@ -107,13 +99,13 @@ def main() -> None:
     ap.add_argument("--licence")
     ap.add_argument("--attribution")
     ap.add_argument("--epsg", type=int)
-    ap.add_argument("--encoder", type=Path, default=Path("output/encoder.pt"))
+    ap.add_argument("--weights", type=Path, default=Path("output/unet.pt"), help="U-Net weights (train_unet)")
     ap.add_argument("--port", type=int, default=8765)
     a = ap.parse_args()
     device = "mps" if torch.backends.mps.is_available() else "cpu"
     print("loading terrain and embedding the tile ...", flush=True)
     if a.source == "england":
-        tile = england_tile(tuple(int(v) for v in a.bbox), a.encoder, device)
+        tile = england_tile(tuple(int(v) for v in a.bbox), a.weights, device)
     else:
         from .scan import build_source
 
@@ -121,7 +113,7 @@ def main() -> None:
                                   lonlat=None)  # fmt: skip
         src = build_source(args)
         print(f"data: {src.name}; {src.licence}; {src.attribution}", flush=True)
-        tile = Tile(src.fetch(tuple(a.bbox), cell=1.0).z, [], a.encoder, device)
+        tile = Tile(src.fetch(tuple(a.bbox), cell=1.0).z, [], a.weights, device)
     print(f"ready: http://127.0.0.1:{a.port}", flush=True)
     ThreadingHTTPServer(("127.0.0.1", a.port), handler(tile)).serve_forever()
 
